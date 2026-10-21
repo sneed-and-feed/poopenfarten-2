@@ -1,0 +1,386 @@
+#include "VoiceManager.h"
+#include <cmath>
+
+namespace pf02::engine {
+
+VoiceManager::VoiceManager() noexcept {
+    reset();
+}
+
+void VoiceManager::prepare(double sampleRate) noexcept {
+    mSampleRate = static_cast<float>(sampleRate > 100.0 ? sampleRate : 48000.0);
+    for (auto& v : mVoices) {
+        v.prepare(mSampleRate);
+    }
+}
+
+void VoiceManager::reset() noexcept {
+    for (auto& v : mVoices) {
+        v.reset();
+    }
+    mNoteStackCount = 0;
+    mClock = 0;
+}
+
+void VoiceManager::setVoicingMode(parameters::VoicingMode mode) noexcept {
+    if (mVoicingMode != mode) {
+        allNotesOff();
+        mVoicingMode = mode;
+    }
+}
+
+void VoiceManager::setNotePriority(NotePriority priority) noexcept {
+    mNotePriority = priority;
+}
+
+void VoiceManager::setPortamentoGlideMs(float glideMs) noexcept {
+    mGlideTimeMs = glideMs;
+    for (auto& v : mVoices) {
+        v.setGlideTimeMs(glideMs);
+    }
+}
+
+void VoiceManager::setPitchBend(float semitones) noexcept {
+    mPitchBendSemitones = semitones;
+    for (auto& v : mVoices) {
+        v.setPitchBendOffset(semitones);
+    }
+}
+
+void VoiceManager::setParameter(parameters::ParameterId id, float value) noexcept {
+    if (id == parameters::ParameterId::VoicingMode) {
+        auto mode = static_cast<parameters::VoicingMode>(static_cast<int>(std::round(value)));
+        setVoicingMode(mode);
+    } else if (id == parameters::ParameterId::GlidePortamentoMs) {
+        setPortamentoGlideMs(value);
+    }
+
+    for (auto& v : mVoices) {
+        v.setParameter(id, value);
+    }
+}
+
+void VoiceManager::setParameter(std::string_view idStr, float value) noexcept {
+    const auto pId = parameters::getParameterIdByName(idStr);
+    setParameter(pId, value);
+}
+
+void VoiceManager::setLorenzModulation(
+    const std::array<float, 16>& freqMultipliers,
+    float qSpreadFactor,
+    float panOffsetRad) noexcept {
+    for (auto& v : mVoices) {
+        v.setLorenzModulation(freqMultipliers, qSpreadFactor, panOffsetRad);
+    }
+}
+
+// ============================================================================
+// Mono-Legato Note Priority Stack
+// ============================================================================
+void VoiceManager::pushNoteStack(int midiNote, float velocity) noexcept {
+    // Check if already in stack, update velocity if so
+    for (size_t i = 0; i < mNoteStackCount; ++i) {
+        if (mNoteStack[i].midiNote == midiNote) {
+            mNoteStack[i].velocity = velocity;
+            // Move to top of stack
+            NoteEntry entry = mNoteStack[i];
+            for (size_t j = i; j + 1 < mNoteStackCount; ++j) {
+                mNoteStack[j] = mNoteStack[j + 1];
+            }
+            mNoteStack[mNoteStackCount - 1] = entry;
+            return;
+        }
+    }
+
+    if (mNoteStackCount < kMaxNoteStack) {
+        mNoteStack[mNoteStackCount++] = { midiNote, velocity };
+    } else {
+        // Drop oldest
+        for (size_t i = 0; i + 1 < kMaxNoteStack; ++i) {
+            mNoteStack[i] = mNoteStack[i + 1];
+        }
+        mNoteStack[kMaxNoteStack - 1] = { midiNote, velocity };
+    }
+}
+
+void VoiceManager::removeNoteStack(int midiNote) noexcept {
+    for (size_t i = 0; i < mNoteStackCount; ++i) {
+        if (mNoteStack[i].midiNote == midiNote) {
+            for (size_t j = i; j + 1 < mNoteStackCount; ++j) {
+                mNoteStack[j] = mNoteStack[j + 1];
+            }
+            --mNoteStackCount;
+            break;
+        }
+    }
+}
+
+int VoiceManager::getPriorityNote(float& outVelocity) const noexcept {
+    if (mNoteStackCount == 0) {
+        outVelocity = 0.0f;
+        return -1;
+    }
+
+    switch (mNotePriority) {
+        case NotePriority::Last: {
+            const auto& entry = mNoteStack[mNoteStackCount - 1];
+            outVelocity = entry.velocity;
+            return entry.midiNote;
+        }
+        case NotePriority::Low: {
+            size_t minIdx = 0;
+            int minNote = mNoteStack[0].midiNote;
+            for (size_t i = 1; i < mNoteStackCount; ++i) {
+                if (mNoteStack[i].midiNote < minNote) {
+                    minNote = mNoteStack[i].midiNote;
+                    minIdx = i;
+                }
+            }
+            outVelocity = mNoteStack[minIdx].velocity;
+            return minNote;
+        }
+        case NotePriority::High: {
+            size_t maxIdx = 0;
+            int maxNote = mNoteStack[0].midiNote;
+            for (size_t i = 1; i < mNoteStackCount; ++i) {
+                if (mNoteStack[i].midiNote > maxNote) {
+                    maxNote = mNoteStack[i].midiNote;
+                    maxIdx = i;
+                }
+            }
+            outVelocity = mNoteStack[maxIdx].velocity;
+            return maxNote;
+        }
+    }
+    outVelocity = mNoteStack[mNoteStackCount - 1].velocity;
+    return mNoteStack[mNoteStackCount - 1].midiNote;
+}
+
+// ============================================================================
+// Polyphonic Voice Stealing
+// ============================================================================
+size_t VoiceManager::findVoiceToSteal() noexcept {
+    // 1. First priority: lowest velocity among released voices
+    size_t candidate = 0;
+    float lowestScore = 1.0e12f;
+
+    for (size_t i = 0; i < kMaxVoices; ++i) {
+        const auto& v = mVoices[i];
+        float score = 0.0f;
+
+        if (!v.isNoteHeld()) {
+            // Released voice is preferred for stealing
+            score = v.getEnvelopeLevel() * 100.0f;
+        } else {
+            // Held voice: score by velocity and age (older = lower onset time)
+            score = 1000.0f + v.getVelocity() * 50.0f + static_cast<float>(v.getOnsetTime() % 1000);
+        }
+
+        if (score < lowestScore) {
+            lowestScore = score;
+            candidate = i;
+        }
+    }
+    return candidate;
+}
+
+// ============================================================================
+// MIDI Note Lifecycle
+// ============================================================================
+void VoiceManager::noteOn(int midiNote, float velocity) noexcept {
+    ++mClock;
+
+    if (mVoicingMode == parameters::VoicingMode::MonoLegato) {
+        const bool wasEmpty = (mNoteStackCount == 0);
+        pushNoteStack(midiNote, velocity);
+
+        float prioVel = velocity;
+        int prioNote = getPriorityNote(prioVel);
+
+        if (wasEmpty) {
+            // Fresh note attack
+            mVoices[0].noteOn(prioNote, prioVel);
+        } else {
+            // Legato portamento transition: glide frequency smoothly
+            mVoices[0].setTargetPitchMidi(static_cast<float>(prioNote), false);
+        }
+    } else if (mVoicingMode == parameters::VoicingMode::Poly8) {
+        // 1. Check if same note is already active on a voice
+        for (size_t i = 0; i < kMaxVoices; ++i) {
+            if (mVoices[i].isActive() && mVoices[i].getMidiNote() == midiNote) {
+                mVoices[i].noteOn(midiNote, velocity);
+                return;
+            }
+        }
+
+        // 2. Search for a free/inactive voice
+        for (size_t i = 0; i < kMaxVoices; ++i) {
+            if (!mVoices[i].isActive()) {
+                mVoices[i].noteOn(midiNote, velocity);
+                return;
+            }
+        }
+
+        // 3. All voices active: steal voice with de-click fade-out
+        const size_t stealIdx = findVoiceToSteal();
+        mVoices[stealIdx].killQuick();
+        mVoices[stealIdx].noteOn(midiNote, velocity);
+    } else if (mVoicingMode == parameters::VoicingMode::StereoUnison) {
+        // 4 voices assigned to a single note with detuning offsets
+        for (size_t v = 0; v < 4; ++v) {
+            const float detunedMidi = static_cast<float>(midiNote) + (kUnisonDetuneCents[v] / 100.0f);
+            mVoices[v].setTargetPitchMidi(detunedMidi, !mVoices[v].isActive());
+            mVoices[v].noteOn(midiNote, velocity);
+        }
+    }
+}
+
+void VoiceManager::noteOff(int midiNote, float velocity) noexcept {
+    if (mVoicingMode == parameters::VoicingMode::MonoLegato) {
+        removeNoteStack(midiNote);
+        if (mNoteStackCount > 0) {
+            float prioVel = 0.0f;
+            int prioNote = getPriorityNote(prioVel);
+            mVoices[0].setTargetPitchMidi(static_cast<float>(prioNote), false);
+        } else {
+            mVoices[0].noteOff(velocity);
+        }
+    } else if (mVoicingMode == parameters::VoicingMode::Poly8) {
+        for (size_t i = 0; i < kMaxVoices; ++i) {
+            if (mVoices[i].isActive() && mVoices[i].getMidiNote() == midiNote && mVoices[i].isNoteHeld()) {
+                mVoices[i].noteOff(velocity);
+            }
+        }
+    } else if (mVoicingMode == parameters::VoicingMode::StereoUnison) {
+        for (size_t v = 0; v < 4; ++v) {
+            mVoices[v].noteOff(velocity);
+        }
+    }
+}
+
+void VoiceManager::allNotesOff() noexcept {
+    mNoteStackCount = 0;
+    for (auto& v : mVoices) {
+        v.noteOff(0.0f);
+    }
+}
+
+// ============================================================================
+// Audio Block Processing (Zero Heap Allocations)
+// ============================================================================
+void VoiceManager::processBlock(
+    float* bufferL,
+    float* bufferR,
+    int numSamples,
+    float externalPressureMod) noexcept {
+    if (numSamples <= 0 || bufferL == nullptr || bufferR == nullptr) {
+        return;
+    }
+
+    // Determine active voices
+    size_t activeCount = 0;
+    for (const auto& v : mVoices) {
+        if (v.isActive()) ++activeCount;
+    }
+
+    if (activeCount == 0) {
+        return;
+    }
+
+    // Headroom scaling for polyphonic sum
+    const float headroomScale = (activeCount > 1)
+        ? (1.0f / std::sqrt(static_cast<float>(activeCount)))
+        : 1.0f;
+
+    for (int i = 0; i < numSamples; ++i) {
+        float sumL = 0.0f;
+        float sumR = 0.0f;
+
+        for (auto& v : mVoices) {
+            if (v.isActive()) {
+                float vL = 0.0f, vR = 0.0f;
+                v.processSample(vL, vR, externalPressureMod);
+                sumL += vL;
+                sumR += vR;
+            }
+        }
+
+        bufferL[i] += sumL * headroomScale;
+        bufferR[i] += sumR * headroomScale;
+    }
+}
+
+// ============================================================================
+// Voice & Telemetry Queries
+// ============================================================================
+size_t VoiceManager::getActiveVoiceCount() const noexcept {
+    size_t count = 0;
+    for (const auto& v : mVoices) {
+        if (v.isActive()) ++count;
+    }
+    return count;
+}
+
+float VoiceManager::getActiveAperture() const noexcept {
+    for (const auto& v : mVoices) {
+        if (v.isActive()) return v.getAperture();
+    }
+    return 1.0f;
+}
+
+float VoiceManager::getActiveColonicPressure() const noexcept {
+    for (const auto& v : mVoices) {
+        if (v.isActive()) return v.getColonicPressure();
+    }
+    return 0.70f;
+}
+
+float VoiceManager::getActiveAirVelocity() const noexcept {
+    for (const auto& v : mVoices) {
+        if (v.isActive()) return v.getAirVelocity();
+    }
+    return 0.0f;
+}
+
+float VoiceManager::getActiveBubbleIntensity() const noexcept {
+    for (const auto& v : mVoices) {
+        if (v.isActive()) return v.getBubbleActivity();
+    }
+    return 0.0f;
+}
+
+bool VoiceManager::wasDropletTriggered() const noexcept {
+    for (const auto& v : mVoices) {
+        if (v.isActive() && v.wasDropletTriggered()) return true;
+    }
+    return false;
+}
+
+std::array<float, 16> VoiceManager::getModalEnergies() const noexcept {
+    std::array<float, 16> sumEnergies {};
+    for (const auto& v : mVoices) {
+        if (v.isActive()) {
+            const auto& m = v.getModalAmplitudes();
+            for (size_t k = 0; k < 16; ++k) {
+                sumEnergies[k] = std::max(sumEnergies[k], m[k]);
+            }
+        }
+    }
+    return sumEnergies;
+}
+
+std::array<float, 16> VoiceManager::getTriadEnergyFlow() const noexcept {
+    for (const auto& v : mVoices) {
+        if (v.isActive()) return v.getTriadEnergyFlow();
+    }
+    return {};
+}
+
+float VoiceManager::getLastRadialDrift() const noexcept {
+    for (const auto& v : mVoices) {
+        if (v.isActive()) return v.getLastRadialDrift();
+    }
+    return 0.0f;
+}
+
+} // namespace pf02::engine

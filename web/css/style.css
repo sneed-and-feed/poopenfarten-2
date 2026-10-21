@@ -1,0 +1,1050 @@
+/**
+ * @file style.css
+ * @brief PF-02 · Darm-Akustischer & Ultrametrischer Triaden-Synthesizer
+ * German Functionalist Laboratory Hardware Design System (DIN 1451 Mittelschrift)
+ * Switchable Anodized Aluminum Light (#ECEBE4) & Matte Anthracite Dark (#141517)
+ */
+
+:root {
+  /* Anodized Aluminum Light Finish (Standard Laboratory Chassis) */
+  --bg-app: #ECEBE4;
+  --bg-chassis: #ECEBE4;
+  --bg-panel: #E2E0D8;
+  --bg-panel-inset: #D7D5CC;
+  --bg-panel-dark: #121415;
+  --bg-bezel: #0F1210;
+  --border-line: #CBC8BD;
+  --border-subtle: #D8D6CD;
+  --border-dark: #2A2D30;
+
+  --text-primary: #1C1D1E;
+  --text-secondary: #585A5E;
+  --text-muted: #888B90;
+  --text-dim: #A8ABA0;
+
+  --knob-cap: #D4D2C9;
+  --knob-border: #BBB8AD;
+  --knob-indicator: #1C1D1E;
+  --knob-track: #D0CEC4;
+  --knob-fill: #1C1D1E;
+  --knob-knurl: #B0ADA1;
+
+  --accent-orange: #EE592B;
+  --accent-orange-glow: rgba(238, 89, 43, 0.45);
+  --accent-green: #24FF6A;
+  --accent-amber: #FFB000;
+  --accent-red: #FF3B30;
+
+  --phosphor-p1: #24FF6A;
+  --phosphor-p1-glow: rgba(36, 255, 106, 0.45);
+  --phosphor-p3: #FFB000;
+  --phosphor-p3-glow: rgba(255, 176, 0, 0.45);
+  --phosphor-burst: #FF5500;
+  --phosphor-burst-glow: rgba(255, 85, 0, 0.55);
+
+  --font-sans: "DIN 1451 Mittelschrift", "DIN 1451", "DIN Alternate", "DIN Neuzeit Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: "SF Mono", "Consolas", "Roboto Mono", "DIN 1451", monospace;
+  --panel-radius: 2px;
+  --shadow-tactile: 0 1px 3px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --shadow-inset: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
+[data-theme="dark"],
+[data-theme="anthracite"] {
+  /* Matte Anthracite Dark Finish (Control Room Studio Edition) */
+  --bg-app: #141517;
+  --bg-chassis: #141517;
+  --bg-panel: #1E2023;
+  --bg-panel-inset: #151618;
+  --bg-panel-dark: #0D0E10;
+  --bg-bezel: #08090A;
+  --border-line: #33363B;
+  --border-subtle: #25272B;
+  --border-dark: #1A1C1E;
+
+  --text-primary: #F0F2F5;
+  --text-secondary: #B0B4BC;
+  --text-muted: #7E828C;
+  --text-dim: #50545C;
+
+  --knob-cap: #2B2D31;
+  --knob-border: #44474E;
+  --knob-indicator: #F0F2F5;
+  --knob-track: #26282C;
+  --knob-fill: #EE592B;
+  --knob-knurl: #1C1D20;
+
+  --accent-orange: #EE592B;
+  --accent-orange-glow: rgba(238, 89, 43, 0.6);
+  --accent-green: #24FF6A;
+  --accent-amber: #FFB000;
+  --accent-red: #FF453A;
+
+  --shadow-tactile: 0 1px 3px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --shadow-inset: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 16px 12px 24px 12px;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* --- 19-Inch 2U Studio Rack Outer Assembly --- */
+.pf02-rack-outer {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  max-width: 1380px;
+  margin: 0 auto;
+  position: relative;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+}
+
+/* Rack Mounting Ears with Hex Screws */
+.pf02-rack-ear {
+  width: 32px;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, #A8A59C 0%, #D4D2C9 40%, #A8A59C 100%);
+  border: 1px solid var(--border-line);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .pf02-rack-ear {
+  background: linear-gradient(90deg, #18191B 0%, #26282B 40%, #18191B 100%);
+  border-color: var(--border-line);
+}
+
+.pf02-rack-ear.ear-left {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  border-right: none;
+}
+
+.pf02-rack-ear.ear-right {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  border-left: none;
+}
+
+.pf02-rack-screw {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #FFFFFF 0%, #A09E96 70%, #605E56 100%);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.4), 0 1px 1px rgba(255,255,255,0.4);
+  position: relative;
+}
+
+[data-theme="dark"] .pf02-rack-screw {
+  background: radial-gradient(circle at 35% 35%, #4A4D52 0%, #25272A 70%, #101112 100%);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.8), 0 1px 1px rgba(255,255,255,0.1);
+}
+
+.pf02-rack-screw::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 2px;
+  background: #333;
+  transform: translate(-50%, -50%) rotate(42deg);
+}
+
+/* --- Main 2U Chassis Faceplate --- */
+.pf02-chassis {
+  flex: 1;
+  min-width: 0;
+  background-color: var(--bg-chassis);
+  border: 1px solid var(--border-line);
+  padding: 12px 16px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+}
+
+/* Header & Utility Bar */
+.pf02-header {
+  border-bottom: 2px solid var(--border-line);
+  padding-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pf02-header-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pf02-brand-block {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.pf02-model-badge {
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+
+.pf02-model-desc {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pf02-din-mark {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-line);
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.pf02-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Master Power Safety Rocker Switch */
+.pf02-power-assembly {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel-inset);
+  padding: 3px 8px;
+  border: 1px solid var(--border-line);
+  border-radius: 2px;
+}
+
+.pf02-power-label {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+}
+
+.pf02-rocker-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #A03318;
+  color: #FFF;
+  border: 1px solid #701C08;
+  padding: 4px 10px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.pf02-rocker-btn.is-active {
+  background: var(--accent-orange);
+  box-shadow: 0 0 10px var(--accent-orange-glow), inset 0 1px 0 rgba(255,255,255,0.5);
+  border-color: #B53610;
+}
+
+.pf02-rocker-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #551505;
+  transition: all 0.15s ease;
+}
+
+.pf02-rocker-btn.is-active .pf02-rocker-led {
+  background: #FFF;
+  box-shadow: 0 0 6px #FFF, 0 0 10px var(--accent-orange);
+}
+
+/* Standard Laboratory Button */
+.pf02-btn {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-line);
+  padding: 4px 10px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--shadow-tactile);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.pf02-btn:hover {
+  background: var(--bg-panel-inset);
+  border-color: var(--text-secondary);
+}
+
+.pf02-btn:active, .pf02-btn.is-active {
+  background: var(--bg-panel-dark);
+  color: #FFF;
+  border-color: var(--text-primary);
+  box-shadow: var(--shadow-inset);
+}
+
+.pf02-btn.is-active-orange {
+  background: var(--accent-orange);
+  color: #FFF;
+  border-color: #B53610;
+  box-shadow: 0 0 8px var(--accent-orange-glow);
+}
+
+.pf02-btn-rec.is-recording {
+  background: var(--accent-red);
+  color: #FFF;
+  border-color: #A00000;
+  animation: pulse-rec 1s infinite alternate;
+}
+
+@keyframes pulse-rec {
+  0% { box-shadow: 0 0 4px rgba(255, 59, 48, 0.4); }
+  100% { box-shadow: 0 0 12px rgba(255, 59, 48, 0.9); }
+}
+
+/* Select Dropdown */
+.pf02-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pf02-select-label {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pf02-select {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-line);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+
+.pf02-select:focus {
+  border-color: var(--accent-orange);
+}
+
+/* --- Main Layout Grid: Visualizer Top + Decks 01-06 --- */
+.pf02-main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 1080px) {
+  .pf02-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Deck Shell Panels --- */
+.pf02-deck {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-line);
+  border-radius: var(--panel-radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow-tactile);
+}
+
+.pf02-deck-full {
+  grid-column: 1 / -1;
+}
+
+.pf02-deck-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 6px;
+}
+
+.pf02-deck-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pf02-deck-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-orange);
+  background: var(--bg-panel-inset);
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid var(--border-subtle);
+}
+
+.pf02-deck-title {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+
+.pf02-deck-subtitle {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.pf02-deck-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pf02-knobs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-around;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+/* Segmented Button Groups */
+.pf02-segment-group {
+  display: inline-flex;
+  border: 1px solid var(--border-line);
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg-panel-inset);
+}
+
+.pf02-segment-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-right: 1px solid var(--border-line);
+  padding: 3px 8px;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.pf02-segment-btn:last-child {
+  border-right: none;
+}
+
+.pf02-segment-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary);
+}
+
+.pf02-segment-btn.is-selected {
+  background: var(--text-primary);
+  color: var(--bg-app);
+}
+
+[data-theme="dark"] .pf02-segment-btn.is-selected {
+  background: var(--accent-orange);
+  color: #FFF;
+}
+
+/* --- Knurled Rotary Knob Styling --- */
+.pf02-knob-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  touch-action: none;
+  cursor: pointer;
+  outline: none;
+  width: 72px;
+}
+
+.pf02-knob-wrapper:focus-visible .pf02-knob-cap {
+  box-shadow: 0 0 0 2px var(--accent-orange);
+}
+
+.pf02-knob-label {
+  font-family: var(--font-sans);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.pf02-knob-assembly {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pf02-knob-wrapper.large .pf02-knob-assembly {
+  width: 56px;
+  height: 56px;
+}
+
+.pf02-knob-wrapper.small .pf02-knob-assembly {
+  width: 38px;
+  height: 38px;
+}
+
+.pf02-knob-scale {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(90deg);
+  pointer-events: none;
+}
+
+.pf02-knob-track {
+  fill: none;
+  stroke: var(--knob-track);
+  stroke-width: 5;
+  stroke-dasharray: 205;
+  stroke-dashoffset: 41;
+  stroke-linecap: round;
+}
+
+.pf02-knob-fill {
+  fill: none;
+  stroke: var(--knob-fill);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.04s linear;
+}
+
+.pf02-knob-cap {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, var(--knob-cap) 0%, var(--knob-border) 90%, #908D80 100%);
+  border: 1px solid var(--knob-border);
+  position: relative;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: transform 0.04s linear;
+}
+
+.pf02-knob-wrapper.large .pf02-knob-cap {
+  width: 40px;
+  height: 40px;
+}
+
+.pf02-knob-wrapper.small .pf02-knob-cap {
+  width: 26px;
+  height: 26px;
+}
+
+/* Precision knurling texture ring around knob cap */
+.pf02-knob-cap::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border-radius: 50%;
+  border: 1px dashed var(--knob-knurl);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.pf02-knob-indicator {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 2px;
+  height: 9px;
+  background: var(--knob-indicator);
+  transform: translateX(-50%);
+  border-radius: 1px;
+}
+
+.pf02-knob-value-display {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  background: var(--bg-panel-inset);
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid var(--border-subtle);
+  min-width: 36px;
+}
+
+/* --- Vector Phosphor CRT Visualizer Bezel & Cavity --- */
+.pf02-crt-deck {
+  grid-column: 1 / -1;
+  background: var(--bg-panel-dark);
+  border: 2px solid var(--border-dark);
+}
+
+.pf02-crt-cavity {
+  position: relative;
+  width: 100%;
+  background: var(--bg-bezel);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: inset 0 4px 12px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.1);
+  border: 1px solid #1E2220;
+  display: flex;
+  flex-direction: column;
+}
+
+.pf02-crt-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 280px;
+}
+
+.pf02-crt-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.pf02-crt-overlay-telemetry {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--phosphor-p1);
+  text-shadow: 0 0 4px var(--phosphor-p1-glow);
+  z-index: 5;
+}
+
+.pf02-crt-telemetry-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pf02-crt-telemetry-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.pf02-crt-toolbar {
+  background: #0E1011;
+  border-top: 1px solid #1D2122;
+  padding: 6px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pf02-crt-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Stepped Unroll K Indicator in CRT toolbar */
+.pf02-unroll-boxes {
+  display: inline-flex;
+  gap: 2px;
+  background: #050606;
+  padding: 2px;
+  border: 1px solid #202422;
+  border-radius: 2px;
+}
+
+.pf02-unroll-box {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 2px 4px;
+  color: #38423B;
+  background: #090B0A;
+  border-radius: 1px;
+}
+
+.pf02-unroll-box.is-active {
+  color: #000;
+  background: var(--phosphor-p1);
+  box-shadow: 0 0 6px var(--phosphor-p1-glow);
+}
+
+/* --- Performance Section: 2D XY Macro Pad + Kinetic Bursts + 16-Key Strip --- */
+.pf02-performance-deck {
+  grid-column: 1 / -1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-line);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pf02-performance-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* 2D XY Macro Pad */
+.pf02-macropad-container {
+  flex: 1;
+  min-width: 260px;
+  background: var(--bg-panel-inset);
+  border: 1px solid var(--border-line);
+  border-radius: 2px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pf02-macropad-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.pf02-macropad-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  background: #111314;
+  border: 1px solid var(--border-dark);
+  border-radius: 2px;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.pf02-macropad-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.pf02-macropad-readout {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--text-secondary);
+}
+
+/* 4 Kinetic Burst Buttons */
+.pf02-burst-cluster {
+  flex: 1;
+  min-width: 260px;
+  background: var(--bg-panel-inset);
+  border: 1px solid var(--border-line);
+  border-radius: 2px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pf02-burst-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  flex: 1;
+}
+
+.pf02-burst-btn {
+  background: linear-gradient(180deg, var(--bg-panel) 0%, var(--bg-panel-inset) 100%);
+  border: 1px solid var(--border-line);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-shadow: 0 2px 3px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4);
+  transition: all 0.08s ease;
+}
+
+.pf02-burst-btn:hover {
+  background: var(--bg-panel);
+  border-color: var(--text-secondary);
+}
+
+.pf02-burst-btn:active, .pf02-burst-btn.is-firing {
+  background: var(--accent-orange);
+  color: #FFF;
+  border-color: #B53610;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.4), 0 0 10px var(--accent-orange-glow);
+  transform: translateY(1px);
+}
+
+.pf02-burst-sub {
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+/* 16-Key Microtonal Keyboard Strip */
+.pf02-keyboard-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-panel-inset);
+  border: 1px solid var(--border-line);
+  border-radius: 2px;
+  padding: 8px;
+}
+
+.pf02-keyboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pf02-keyboard-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pf02-pitchbend-strip {
+  width: 90px;
+  height: 18px;
+  background: #111314;
+  border: 1px solid var(--border-dark);
+  border-radius: 2px;
+  position: relative;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.pf02-pitchbend-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 50%;
+  width: 10px;
+  margin-left: -5px;
+  background: var(--accent-orange);
+  border-radius: 1px;
+  box-shadow: 0 0 4px var(--accent-orange-glow);
+}
+
+.pf02-keys-strip {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 3px;
+  height: 64px;
+}
+
+.pf02-key {
+  background: linear-gradient(180deg, #FFFFFF 0%, #E0DDD4 85%, #C2BEB4 100%);
+  border: 1px solid #A4A096;
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 2px;
+  cursor: pointer;
+  box-shadow: 0 2px 2px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8);
+  transition: all 0.05s ease;
+}
+
+[data-theme="dark"] .pf02-key {
+  background: linear-gradient(180deg, #2D3035 0%, #1E2023 85%, #151618 100%);
+  border-color: #3D4046;
+  box-shadow: 0 2px 2px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+.pf02-key.is-accident {
+  background: linear-gradient(180deg, #4A4D52 0%, #2B2D31 85%, #1C1D20 100%);
+  border-color: #222426;
+  color: #FFF;
+}
+
+[data-theme="dark"] .pf02-key.is-accident {
+  background: linear-gradient(180deg, #1C1D20 0%, #121315 85%, #0B0C0D 100%);
+  border-color: #2A2C30;
+}
+
+.pf02-key:hover {
+  filter: brightness(1.05);
+}
+
+.pf02-key:active, .pf02-key.is-pressed {
+  background: var(--accent-orange);
+  color: #FFF;
+  border-color: #B53610;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.4), 0 0 8px var(--accent-orange-glow);
+  transform: translateY(2px);
+}
+
+.pf02-key-note {
+  font-family: var(--font-sans);
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.pf02-key-freq {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  opacity: 0.75;
+}
+
+/* Footer Telemetry & Legal */
+.pf02-footer {
+  border-top: 1px solid var(--border-line);
+  padding-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Drag & Drop JSON Patch Overlay */
+.pf02-drop-overlay {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(18, 20, 22, 0.92);
+  z-index: 999;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border: 2px dashed var(--accent-orange);
+}
+
+.pf02-chassis.is-drag-over .pf02-drop-overlay {
+  display: flex;
+}
+
+.pf02-drop-box {
+  padding: 16px 28px;
+  background: #090B0C;
+  border: 1px solid var(--accent-orange);
+  color: var(--accent-orange);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: 0 0 20px var(--accent-orange-glow);
+}

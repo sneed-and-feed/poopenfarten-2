@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#ECEBE4">
+  <title>PF-02 &middot; Darm-Akustischer &amp; Ultrametrischer Triaden-Synthesizer</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%226%22 fill=%22%23141517%22/><circle cx=%2250%22 cy=%2250%22 r=%2232%22 fill=%22none%22 stroke=%22%23EE592B%22 stroke-width=%228%22/><circle cx=%2250%22 cy=%2250%22 r=%2212%22 fill=%22%2324FF6A%22/></svg>">
+</head>
+<body>
+
+  <!-- 19-Inch 2U Studio Rack Outer Assembly -->
+  <div class="pf02-rack-outer">
+    
+    <!-- Left Rack Mounting Ear with Hex Screws -->
+    <aside class="pf02-rack-ear ear-left" aria-hidden="true">
+      <div class="pf02-rack-screw"></div>
+      <div class="pf02-rack-screw"></div>
+    </aside>
+
+    <!-- Main 2U Chassis Faceplate -->
+    <main class="pf02-chassis" id="pf02-chassis">
+
+      <!-- Drag & Drop RFC 8259 JSON Patch Overlay -->
+      <div class="pf02-drop-overlay" id="drop-overlay" aria-hidden="true">
+        <div class="pf02-drop-box">RFC 8259 JSON-PATCH HIER ABLEGEN</div>
+      </div>
+
+      <!-- Header / Utility Bar -->
+      <header class="pf02-header">
+        <div class="pf02-header-top">
+          <div class="pf02-brand-block">
+            <span class="pf02-model-badge">PF-02</span>
+            <span class="pf02-model-desc">Darm-Akustischer &amp; Ultrametrischer Triaden-Synthesizer</span>
+            <span class="pf02-din-mark">DIN 1451</span>
+          </div>
+
+          <div class="pf02-header-actions">
+            <!-- Finish Theme Selector -->
+            <div class="pf02-select-wrap">
+              <span class="pf02-select-label">GEHÄUSE:</span>
+              <select id="select-theme" class="pf02-select" title="Chassis-Oberfläche">
+                <option value="light" selected>ALUMINIUM (HELL)</option>
+                <option value="dark">ANTHRAZIT (DUNKEL)</option>
+              </select>
+            </div>
+
+            <!-- Factory & User Preset Selector -->
+            <div class="pf02-select-wrap">
+              <span class="pf02-select-label">PRESET:</span>
+              <select id="select-preset" class="pf02-select" title="16 Kuratierte Werks-Presets">
+                <!-- Dynamically populated by main.js -->
+              </select>
+            </div>
+
+            <!-- Patch Management Buttons -->
+            <button id="btn-save-patch" class="pf02-btn" title="Aktuellen Zustand als Patch speichern">SPEICHERN</button>
+            <button id="btn-export-patch" class="pf02-btn" title="RFC 8259 JSON Exportieren">EXPORT</button>
+            <button id="btn-load-patch" class="pf02-btn" title="RFC 8259 JSON Laden">LADEN</button>
+            <input type="file" id="input-load-patch" accept=".json,application/json" style="display:none;">
+            <button id="btn-reset-all" class="pf02-btn" title="Auf Werkszustand zurücksetzen">RESET</button>
+
+            <!-- 16-Bit Lossless WAV Master Recorder -->
+            <button id="btn-record-wav" class="pf02-btn pf02-btn-rec" title="16-Bit 48kHz Stereo WAV Master-Bus Recorder">
+              <span class="pf02-rec-text">REC WAV</span>
+            </button>
+
+            <!-- Master Power Illuminated Safety Rocker Switch -->
+            <div class="pf02-power-assembly">
+              <span class="pf02-power-label">HAUPTSCHALTER</span>
+              <button id="btn-power-switch" class="pf02-rocker-btn is-active" title="Hauptschalter Power / Aktiv">
+                <span class="pf02-rocker-led"></span>
+                <span class="pf02-power-status">AKTIV</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- 4-Mode Vector CRT Visualizer Deck -->
+      <section class="pf02-deck pf02-crt-deck" aria-label="Vektor-Phosphor-Oszilloskop Deck">
+        <div class="pf02-deck-header" style="border-bottom-color: #222624;">
+          <div class="pf02-deck-title-group">
+            <span class="pf02-deck-num">CRT</span>
+            <span class="pf02-deck-title" style="color: #FFF;">60 FPS VEKTOR-PHOSPHOR-OSZILLOSKOP</span>
+          </div>
+          <span class="pf02-deck-subtitle" style="color: var(--phosphor-p1);">NACHLEUCHT-PERSISTENZ &middot; P1/P3 DIN-GRATIKUL</span>
+        </div>
+
+        <div class="pf02-crt-cavity">
+          <div class="pf02-crt-canvas-wrap">
+            <canvas id="crt-canvas" class="pf02-crt-canvas" width="1160" height="560"></canvas>
+            
+            <!-- Real-time CRT Telemetry Overlay -->
+            <div class="pf02-crt-overlay-telemetry">
+              <div class="pf02-crt-telemetry-left">
+                <span id="crt-drift-readout">||v||/||v0||: 1.00000000 &middot; Radial Drift: 0.000e+00</span>
+                <span>SO(16) LIE-KOMMUTATOR: 0.842 &middot; SPHÄRISCHE NORM CONSERVED</span>
+              </div>
+              <div class="pf02-crt-telemetry-right">
+                <span id="crt-zeno-readout">T_zeno: 0.250 &middot; K: 1</span>
+                <span>TPT-SVF MATRIX: 16 POLE &middot; 0 DELAY LOOKAHEAD</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- CRT Mode & Display Toolbar -->
+          <div class="pf02-crt-toolbar">
+            <div class="pf02-crt-tool-group">
+              <span class="pf02-select-label" style="color: #7E8C82;">MODUS:</span>
+              <div class="pf02-segment-group" id="group-crt-mode">
+                <button class="pf02-segment-btn is-selected" data-val="BELTRAMI-KAMMER">1: BELTRAMI-KAMMER</button>
+                <button class="pf02-segment-btn" data-val="SO16_TRIADEN_NETZ">2: SO(16) TRIADEN-NETZ</button>
+                <button class="pf02-segment-btn" data-val="ZENON-LORENZ">3: ZENON-LORENZ</button>
+                <button class="pf02-segment-btn" data-val="SPEKTRUM_LISSAJOUS">4: SPEKTRUM / LISSAJOUS</button>
+              </div>
+            </div>
+
+            <div class="pf02-crt-tool-group">
+              <span class="pf02-select-label" style="color: #7E8C82;">PHOSPHOR:</span>
+              <div class="pf02-segment-group" id="group-phosphor-type">
+                <button class="pf02-segment-btn is-selected" data-val="GREEN_P1">P1 GRÜN</button>
+                <button class="pf02-segment-btn" data-val="AMBER_P3">P3 AMBER</button>
+              </div>
+
+              <!-- Stepped Unroll K Indicator Boxes -->
+              <span class="pf02-select-label" style="color: #7E8C82; margin-left: 8px;">UNROLL K:</span>
+              <div class="pf02-unroll-boxes">
+                <span class="pf02-unroll-box is-active" data-k="1">K=1</span>
+                <span class="pf02-unroll-box" data-k="4">K=4</span>
+                <span class="pf02-unroll-box" data-k="8">K=8</span>
+                <span class="pf02-unroll-box" data-k="16">K=16</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Main Parameter Decks (Decks 01 - 06) -->
+      <div class="pf02-main-grid">
+
+        <!-- DECK 01: KARNOPP-SCHLEIMHAUT & DRUCKVENTIL -->
+        <section class="pf02-deck" aria-label="Deck 01">
+          <div class="pf02-deck-header">
+            <div class="pf02-deck-title-group">
+              <span class="pf02-deck-num">01</span>
+              <span class="pf02-deck-title">KARNOPP-SCHLEIMHAUT &amp; DRUCKVENTIL</span>
+            </div>
+            <span class="pf02-deck-subtitle">HAFTREIBUNG, STRIBECK &amp; VACTROL</span>
+          </div>
+          <div class="pf02-knobs-row">
+            <div id="knob-colonic-pressure"></div>
+            <div id="knob-mucosal-tension"></div>
+            <div id="knob-resting-aperture"></div>
+            <div id="knob-karnopp-stiction"></div>
+          </div>
+          <div class="pf02-knobs-row">
+            <div id="knob-stribeck-breakaway"></div>
+            <div id="knob-tissue-hardness"></div>
+            <div id="knob-impact-restitution"></div>
+            <div id="knob-vactrol-sag-tau"></div>
+          </div>
+        </section>
+
+        <!-- DECK 02: BELTRAMI-STRAHL & MINNAERT-PHASENFLUID -->
+        <section class="pf02-deck" aria-label="Deck 02">
+          <div class="pf02-deck-header">
+            <div class="pf02-deck-title-group">
+              <span class="pf02-deck-num">02</span>
+              <span class="pf02-deck-title">BELTRAMI-STRAHL &amp; MINNAERT-PHASENFLUID</span>
+            </div>
+            <span class="pf02-deck-subtitle">WIRBELSTROM, BLASEN &amp; EUKLID-CLOCK</span>
+          </div>
+          <div class="pf02-knobs-row">
+            <div id="knob-beltrami-vortex-pitch"></div>
+            <div id="knob-reynolds-turbulence"></div>
+            <div id="knob-multiphase-moisture"></div>
+            <div id="knob-fluid-viscosity"></div>
+          </div>
+          <div class="pf02-knobs-row">
+            <div id="knob-minnaert-bubble-density"></div>
+            <div id="knob-poisson-droplet-rate"></div>
+            <div id="knob-euclidean-peristalsis-k"></div>
+            <div id="knob-euclidean-peristalsis-n"></div>
+          </div>
+        </section>
+
+        <!-- DECK 03: SO(16) TRIADEN-RESONATOR & PORZELLAN-FELD -->
+        <section class="pf02-deck pf02-deck-full" aria-label="Deck 03">
+          <div class="pf02-deck-header">
+            <div class="pf02-deck-title-group">
+              <span class="pf02-deck-num">03</span>
+              <span class="pf02-deck-title">SO(16) TRIADEN-RESONATOR &amp; PORZELLAN-FELD</span>
+            </div>
+            <span class="pf02-deck-subtitle">16-POL TPT-SVF &middot; HOUSEHOLDER-STREUUNG &middot; SPHERICAL RETRACTION</span>
+          </div>
+          
+          <div class="pf02-deck-row" style="padding-top: 4px;">
+            <!-- Manifold Selector -->
+            <div class="pf02-select-wrap">
+              <span class="pf02-select-label">MANIGFALTIGKEIT:</span>
+              <div class="pf02-segment-group" id="group-manifold">
+                <button class="pf02-segment-btn" data-val="0">SIGMOID-HORN</button>
+                <button class="pf02-segment-btn" data-val="1">CHLADNI-RING</button>
+                <button class="pf02-segment-btn is-selected" data-val="2">VOKALTRAKT</button>
+                <button class="pf02-segment-btn" data-val="3">JORDAN-BECKEN</button>
+              </div>
+            </div>
+
+            <!-- Material Damping Profile -->
+            <div class="pf02-select-wrap">
+              <span class="pf02-select-label">DÄMPFUNGSPROFIL:</span>
+              <div class="pf02-segment-group" id="group-damping">
+                <button class="pf02-segment-btn is-selected" data-val="0">GEWEBE</button>
+                <button class="pf02-segment-btn" data-val="1">KERAMIK</button>
+                <button class="pf02-segment-btn" data-val="2">ELASTOMER</button>
+                <button class="pf02-segment-btn" data-val="3">BRONZE</button>
+                <button class="pf02-segment-btn" data-val="4">KNORPEL</button>
+              </div>
+            </div>
+
+            <!-- Porcelain Boundary Profile -->
+            <div class="pf02-select-wrap">
+              <span class="pf02-select-label">GRENZFLÄCHE:</span>
+              <div class="pf02-segment-group" id="group-boundary">
+                <button class="pf02-segment-btn" data-val="0">TROCKEN</button>
+                <button class="pf02-segment-btn is-selected" data-val="1">STANDARD</button>
+                <button class="pf02-segment-btn" data-val="2">WASSER</button>
+                <button class="pf02-segment-btn" data-val="3">GEKACHELT</button>
+              </div>
+            </div>
+
+            <!-- Spherical Retraction Toggle -->
+            <button id="btn-spherical-retraction" class="pf02-btn is-active-orange" title="Exakte IEEE-754 Norm-Retraktion (0.000e+00 Drift)">
+              SPHÄRISCHE RETRAKTION
+            </button>
+          </div>
+
+          <div class="pf02-knobs-row">
+            <div id="knob-triad-coupling-gain"></div>
+            <div id="knob-so16-skew-generator"></div>
+            <div id="knob-householder-coupling"></div>
+            <div id="knob-porcelain-cavity-mix"></div>
+          </div>
+        </section>
+
+        <!-- DECK 04: ZENON-AMYGDALA & LORENZ-ATTRAKTOR -->
+        <section class="pf02-deck" aria-label="Deck 04">
+          <div class="pf02-deck-header">
+            <div class="pf02-deck-title-group">
+              <span class="pf02-deck-num">04</span>
+              <span class="pf02-deck-title">ZENON-AMYGDALA &amp; LORENZ-ATTRAKTOR</span>
+            </div>
+            <span class="pf02-deck-subtitle">ADAPTIVE SUB-SCHRITTE &middot; 3D RK4 CHAOS</span>
+          </div>
+
+          <div class="pf02-deck-row" style="padding-top: 4px;">
+            <div class="pf02-select-wrap">
+              <span class="pf02-select-label">ENTFALTUNG (UNROLL):</span>
+              <div class="pf02-segment-group" id="group-zeno-unroll">
+                <button class="pf02-segment-btn is-selected" data-val="0">AUTO (ZENON)</button>
+                <button class="pf02-segment-btn" data-val="1">K=1</button>
+                <button class="pf02-segment-btn" data-val="2">K=4</button>
+                <button class="pf02-segment-btn" data-val="3">K=8</button>
+                <button class="pf02-segment-btn" data-val="4">K=16</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="pf02-knobs-row">
+            <div id="knob-zeno-conflict-threshold"></div>
+            <div id="knob-lorenz-orbit-rate"></div>
+            <div id="knob-lorenz-chaos-depth"></div>
+          </div>
+        </section>
+
+        <!-- DECK 05: DIMENSION-D BBD & HERMITE-BEGRENZER -->
+        <section class="pf02-deck" aria-label="Deck 05">
+          <div class="pf02-deck-header">
+            <div class="pf02-deck-title-group">
+              <span class="pf02-deck-num">05</span>
+              <span class="pf02-deck-title">DIMENSION-D BBD &amp; HERMITE-BEGRENZER</span>
+            </div>
+            <span class="pf02-deck-subtitle">TRI-PHASEN CHORUS &middot; 15 HZ DC &middot; ASYMPTOTIK &le; 1.05</span>
+          </div>
+
+          <div class="pf02-deck-row" style="padding-top: 4px;">
+            <button id="btn-chorus-enable" class="pf02-btn is-active-orange" title="Roland Dimension D Tri-Phasen BBD Chorus">
+              DIMENSION-D AKTIV
+            </button>
+
+            <div class="pf02-select-wrap">
+              <span class="pf02-select-label">MODUS:</span>
+              <div class="pf02-segment-group" id="group-dimension-mode">
+                <button class="pf02-segment-btn" data-val="0">MODUS I</button>
+                <button class="pf02-segment-btn is-selected" data-val="1">MODUS II</button>
+                <button class="pf02-segment-btn" data-val="2">MODUS III</button>
+                <button class="pf02-segment-btn" data-val="3">MODUS IV</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="pf02-knobs-row">
+            <div id="knob-dimension-d-mix"></div>
+            <div id="knob-colonic-saturation-drive"></div>
+            <div id="knob-visceral-sub-reinforce"></div>
+          </div>
+        </section>
+
+        <!-- DECK 06: SPATIAL-ROUTING & MASTER-PEGEL -->
+        <section class="pf02-deck pf02-deck-full" aria-label="Deck 06">
+          <div class="pf02-deck-header">
+            <div class="pf02-deck-title-group">
+              <span class="pf02-deck-num">06</span>
+              <span class="pf02-deck-title">SPATIAL-ROUTING &amp; MASTER-PEGEL</span>
+            </div>
+            <span class="pf02-deck-subtitle">GOLDENSCHNITT 137.5&deg; &middot; STIMMEN-ARCHITEKTUR &middot; PORTAMENTO</span>
+          </div>
+
+          <div class="pf02-deck-row" style="padding-top: 4px;">
+            <div class="pf02-select-wrap">
+              <span class="pf02-select-label">STIMMEN-MODUS:</span>
+              <div class="pf02-segment-group" id="group-voicing-mode">
+                <button class="pf02-segment-btn is-selected" data-val="0">MONO-LEGATO</button>
+                <button class="pf02-segment-btn" data-val="1">POLY 8-STIMMIG</button>
+                <button class="pf02-segment-btn" data-val="2">STEREO-UNISONO</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="pf02-knobs-row">
+            <div id="knob-golden-stereo-spread"></div>
+            <div id="knob-glide-portamento-ms"></div>
+            <div id="knob-master-volume-db"></div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- Performance Section: 2D XY Macro Pad, 4 Bursts, 16-Key Keyboard -->
+      <section class="pf02-performance-deck" aria-label="Spielhilfen">
+        <div class="pf02-performance-top">
+          <!-- 2D XY Macro Pad -->
+          <div class="pf02-macropad-container" id="macro-pad-container">
+            <!-- Rendered by macro_pad.js -->
+          </div>
+
+          <!-- 4 Kinetic Burst Triggers -->
+          <div class="pf02-burst-cluster">
+            <div class="pf02-deck-header" style="border:none; padding-bottom: 2px;">
+              <span class="pf02-deck-title" style="font-size: 10px;">KINETISCHE ABRISS-TRIGGER</span>
+              <span class="pf02-deck-subtitle">SOFORTIGER STRIBECK- &amp; BUBBLE-IMPULS</span>
+            </div>
+            <div class="pf02-burst-grid">
+              <button class="pf02-burst-btn" id="btn-burst-impulse">
+                <span>IMPULS-SCHLAG</span>
+                <span class="pf02-burst-sub">DIRAC-IMPULS [SPACE]</span>
+              </button>
+              <button class="pf02-burst-btn" id="btn-burst-tear">
+                <span>KARNOPP-ABRISS</span>
+                <span class="pf02-burst-sub">STRIBECK-TRANSIENTE</span>
+              </button>
+              <button class="pf02-burst-btn" id="btn-burst-splatter">
+                <span>MINNAERT-PLOPP</span>
+                <span class="pf02-burst-sub">POISSON-BLASEN</span>
+              </button>
+              <button class="pf02-burst-btn" id="btn-burst-jordan">
+                <span>JORDAN-RESONANZ</span>
+                <span class="pf02-burst-sub">KERAMIK-WELLEN</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 16-Key Microtonal Strip -->
+        <div class="pf02-keyboard-container" id="keyboard-container">
+          <!-- Rendered by keyboard.js -->
+        </div>
+      </section>
+
+      <!-- Chassis Footer -->
+      <footer class="pf02-footer">
+        <span>PF-02 &middot; DARM-AKUSTIK &amp; ULTRAMETRIK &middot; DIN 1451 MITTELSCHRIFT</span>
+        <span>ECHTZEIT-PHYSIKALISCHE MODELLIERUNG &middot; 0 EMBEDDED SAMPLE ARRAYS</span>
+        <span>LABOR-INSTRUMENTIERUNG GMBH</span>
+      </footer>
+
+    </main>
+
+    <!-- Right Rack Mounting Ear with Hex Screws -->
+    <aside class="pf02-rack-ear ear-right" aria-hidden="true">
+      <div class="pf02-rack-screw"></div>
+      <div class="pf02-rack-screw"></div>
+    </aside>
+
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

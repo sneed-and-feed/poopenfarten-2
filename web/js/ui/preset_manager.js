@@ -1,0 +1,863 @@
+/**
+ * @file preset_manager.js
+ * @brief 16 Curated Factory Presets & RFC 8259 JSON Patch Manager for PF-02
+ */
+
+export const FACTORY_PRESETS = [
+  {
+    id: "PF02_DEFAULT_DARM_TRIADE",
+    name: "CALIBRATED DEFAULT · Triaden-Grundzustand",
+    category: "Standard Benchmark",
+    description: "Balanced mucosal relaxation valve, standard colonic pressure, moderate so(16) triad coupling, rich authentic guttural resonance.",
+    params: {
+      param_colonic_pressure: 0.70,
+      param_mucosal_tension: 0.50,
+      param_resting_aperture: 1.0,
+      param_karnopp_stiction: 0.65,
+      param_stribeck_breakaway: 2.2,
+      param_tissue_hardness: 2.1,
+      param_impact_restitution: 0.45,
+      param_vactrol_sag_tau: 85.0,
+      param_beltrami_vortex_pitch: 2.8,
+      param_reynolds_turbulence: 0.40,
+      param_multiphase_moisture: 0.35,
+      param_fluid_viscosity: 0.30,
+      param_minnaert_bubble_density: 40.0,
+      param_poisson_droplet_rate: 8.5,
+      param_euclidean_peristalsis_k: 5,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.85,
+      param_so16_skew_generator: 0.50,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.45,
+      param_geometric_manifold: 2, // Vocal
+      param_damping_profile: 0,   // Tissue
+      param_porcelain_cavity_mix: 35.0,
+      param_porcelain_boundary_mode: 1, // Standard
+      param_zeno_unroll_override: 0, // Auto
+      param_zeno_conflict_threshold: 0.55,
+      param_lorenz_orbit_rate: 0.65,
+      param_lorenz_chaos_depth: 25.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 1, // Mode II
+      param_dimension_d_mix: 40.0,
+      param_colonic_saturation_drive: 30.0,
+      param_visceral_sub_reinforce: 0.0,
+      param_golden_stereo_spread: 75.0,
+      param_voicing_mode: 0, // Mono
+      param_glide_portamento_ms: 45.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.50,
+      macro_fluid_moisture: 0.50
+    }
+  },
+  {
+    id: "GUTTURAL_SUB_INFRASONIC",
+    name: "INFRASONISCHER BRUMMER · Infrasonic Bowel",
+    category: "Sub Bass",
+    description: "Subharmonic period-doubling down to 7 Hz, high colonic pressure head, maximum visceral sub reinforcement, loose mucosal tension.",
+    params: {
+      param_colonic_pressure: 0.95,
+      param_mucosal_tension: 0.22,
+      param_resting_aperture: 2.2,
+      param_karnopp_stiction: 0.80,
+      param_stribeck_breakaway: 1.4,
+      param_tissue_hardness: 1.6,
+      param_impact_restitution: 0.70,
+      param_vactrol_sag_tau: 160.0,
+      param_beltrami_vortex_pitch: 1.2,
+      param_reynolds_turbulence: 0.25,
+      param_multiphase_moisture: 0.20,
+      param_fluid_viscosity: 0.60,
+      param_minnaert_bubble_density: 15.0,
+      param_poisson_droplet_rate: 3.0,
+      param_euclidean_peristalsis_k: 3,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.40,
+      param_so16_skew_generator: 0.20,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.60,
+      param_geometric_manifold: 2, // Vocal
+      param_damping_profile: 0,   // Tissue
+      param_porcelain_cavity_mix: 15.0,
+      param_porcelain_boundary_mode: 0,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.40,
+      param_lorenz_orbit_rate: 0.20,
+      param_lorenz_chaos_depth: 10.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 0, // Mode I
+      param_dimension_d_mix: 25.0,
+      param_colonic_saturation_drive: 55.0,
+      param_visceral_sub_reinforce: 5.0,
+      param_golden_stereo_spread: 50.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 60.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.85,
+      macro_fluid_moisture: 0.25
+    }
+  },
+  {
+    id: "STRIEBECK_STICK_SLIP_TEAR",
+    name: "KARNOPP-ABREISS-FLUTTER · Bowed Mucosa",
+    category: "Friction & Flutter",
+    description: "Karnopp velocity deadband stiction, violent Stribeck breakaway transients, dry crackling breaks and mucosal squeaks.",
+    params: {
+      param_colonic_pressure: 0.60,
+      param_mucosal_tension: 0.85,
+      param_resting_aperture: 0.4,
+      param_karnopp_stiction: 0.98,
+      param_stribeck_breakaway: 6.5,
+      param_tissue_hardness: 2.8,
+      param_impact_restitution: 0.20,
+      param_vactrol_sag_tau: 45.0,
+      param_beltrami_vortex_pitch: 5.5,
+      param_reynolds_turbulence: 0.65,
+      param_multiphase_moisture: 0.05,
+      param_fluid_viscosity: 0.10,
+      param_minnaert_bubble_density: 5.0,
+      param_poisson_droplet_rate: 0.5,
+      param_euclidean_peristalsis_k: 7,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 1.10,
+      param_so16_skew_generator: 0.70,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.50,
+      param_geometric_manifold: 1, // Chladni
+      param_damping_profile: 2,   // Elastomer
+      param_porcelain_cavity_mix: 20.0,
+      param_porcelain_boundary_mode: 0,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.75,
+      param_lorenz_orbit_rate: 1.20,
+      param_lorenz_chaos_depth: 45.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 2, // Mode III
+      param_dimension_d_mix: 30.0,
+      param_colonic_saturation_drive: 40.0,
+      param_visceral_sub_reinforce: -6.0,
+      param_golden_stereo_spread: 80.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 15.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.70,
+      macro_fluid_moisture: 0.05
+    }
+  },
+  {
+    id: "BELTRAMI_HELICAL_VORTEX",
+    name: "BELTRAMI-WIRBELSTRAHL · Aeroacoustic Jet",
+    category: "Aeroacoustic Jet",
+    description: "High Reynolds number turbulent jet, strong Beltrami vortex wavenumber lambda, whistle and flutter hiss.",
+    params: {
+      param_colonic_pressure: 0.85,
+      param_mucosal_tension: 0.40,
+      param_resting_aperture: 1.5,
+      param_karnopp_stiction: 0.35,
+      param_stribeck_breakaway: 1.8,
+      param_tissue_hardness: 1.8,
+      param_impact_restitution: 0.40,
+      param_vactrol_sag_tau: 60.0,
+      param_beltrami_vortex_pitch: 8.5,
+      param_reynolds_turbulence: 0.90,
+      param_multiphase_moisture: 0.25,
+      param_fluid_viscosity: 0.15,
+      param_minnaert_bubble_density: 20.0,
+      param_poisson_droplet_rate: 12.0,
+      param_euclidean_peristalsis_k: 4,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.90,
+      param_so16_skew_generator: 0.85,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.40,
+      param_geometric_manifold: 0, // Sigmoid Horn
+      param_damping_profile: 0,   // Tissue
+      param_porcelain_cavity_mix: 30.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.60,
+      param_lorenz_orbit_rate: 2.50,
+      param_lorenz_chaos_depth: 35.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 1,
+      param_dimension_d_mix: 45.0,
+      param_colonic_saturation_drive: 35.0,
+      param_visceral_sub_reinforce: -3.0,
+      param_golden_stereo_spread: 85.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 30.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.65,
+      macro_fluid_moisture: 0.30
+    }
+  },
+  {
+    id: "MINNAERT_HYDRO_SPLATTER",
+    name: "MINNAERT-HYDRO-PLOPP · Multiphase Splatter",
+    category: "Multiphase Fluid",
+    description: "Gas-liquid bubble bank, Poisson droplet splatter rain, high moisture, wet squelch formant filtering.",
+    params: {
+      param_colonic_pressure: 0.75,
+      param_mucosal_tension: 0.45,
+      param_resting_aperture: 1.8,
+      param_karnopp_stiction: 0.50,
+      param_stribeck_breakaway: 2.0,
+      param_tissue_hardness: 1.9,
+      param_impact_restitution: 0.60,
+      param_vactrol_sag_tau: 110.0,
+      param_beltrami_vortex_pitch: 3.2,
+      param_reynolds_turbulence: 0.45,
+      param_multiphase_moisture: 0.95,
+      param_fluid_viscosity: 0.75,
+      param_minnaert_bubble_density: 95.0,
+      param_poisson_droplet_rate: 38.0,
+      param_euclidean_peristalsis_k: 9,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.75,
+      param_so16_skew_generator: 0.40,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.35,
+      param_geometric_manifold: 2, // Vocal
+      param_damping_profile: 2,   // Wet Elastomer
+      param_porcelain_cavity_mix: 50.0,
+      param_porcelain_boundary_mode: 2, // Water-Coupled
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.50,
+      param_lorenz_orbit_rate: 0.45,
+      param_lorenz_chaos_depth: 30.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 2,
+      param_dimension_d_mix: 55.0,
+      param_colonic_saturation_drive: 25.0,
+      param_visceral_sub_reinforce: +2.0,
+      param_golden_stereo_spread: 80.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 50.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.60,
+      macro_fluid_moisture: 0.95
+    }
+  },
+  {
+    id: "PORCELAIN_JORDAN_RESONANCE",
+    name: "PORZELLAN-JORDAN-BECKEN · Ceramic Cavity",
+    category: "Ceramic Cavity",
+    description: "2D Jordan-enclosure cavity standing waves, porcelain bowl reflection profile, ceramic viscoelastic damping.",
+    params: {
+      param_colonic_pressure: 0.65,
+      param_mucosal_tension: 0.55,
+      param_resting_aperture: 1.2,
+      param_karnopp_stiction: 0.60,
+      param_stribeck_breakaway: 2.5,
+      param_tissue_hardness: 2.6,
+      param_impact_restitution: 0.30,
+      param_vactrol_sag_tau: 90.0,
+      param_beltrami_vortex_pitch: 2.4,
+      param_reynolds_turbulence: 0.30,
+      param_multiphase_moisture: 0.30,
+      param_fluid_viscosity: 0.25,
+      param_minnaert_bubble_density: 30.0,
+      param_poisson_droplet_rate: 6.0,
+      param_euclidean_peristalsis_k: 5,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.95,
+      param_so16_skew_generator: 0.55,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.70,
+      param_geometric_manifold: 3, // Jordan
+      param_damping_profile: 1,   // Ceramic
+      param_porcelain_cavity_mix: 90.0,
+      param_porcelain_boundary_mode: 3, // Tiled
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.55,
+      param_lorenz_orbit_rate: 0.50,
+      param_lorenz_chaos_depth: 20.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 3,
+      param_dimension_d_mix: 45.0,
+      param_colonic_saturation_drive: 20.0,
+      param_visceral_sub_reinforce: -2.0,
+      param_golden_stereo_spread: 90.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 40.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.45,
+      macro_fluid_moisture: 0.35
+    }
+  },
+  {
+    id: "SO16_SPHERICAL_ROAR",
+    name: "SO(16)-TRIADEN-SINGULARITÄT · Triad Roar",
+    category: "Extreme Resonator",
+    description: "Maximum so(16) Lie-triad coupling, SlowFastTriadCascade K=16, exact spherical norm retraction with zero radial drift, aggressive formant roar.",
+    params: {
+      param_colonic_pressure: 0.90,
+      param_mucosal_tension: 0.65,
+      param_resting_aperture: 0.8,
+      param_karnopp_stiction: 0.75,
+      param_stribeck_breakaway: 3.5,
+      param_tissue_hardness: 2.4,
+      param_impact_restitution: 0.50,
+      param_vactrol_sag_tau: 75.0,
+      param_beltrami_vortex_pitch: 4.2,
+      param_reynolds_turbulence: 0.60,
+      param_multiphase_moisture: 0.40,
+      param_fluid_viscosity: 0.35,
+      param_minnaert_bubble_density: 50.0,
+      param_poisson_droplet_rate: 15.0,
+      param_euclidean_peristalsis_k: 7,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 1.90,
+      param_so16_skew_generator: 0.95,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.80,
+      param_geometric_manifold: 1, // Chladni
+      param_damping_profile: 4,   // Stiff Cartilage
+      param_porcelain_cavity_mix: 40.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 4, // Force K=16
+      param_zeno_conflict_threshold: 0.30,
+      param_lorenz_orbit_rate: 1.80,
+      param_lorenz_chaos_depth: 60.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 2,
+      param_dimension_d_mix: 50.0,
+      param_colonic_saturation_drive: 65.0,
+      param_visceral_sub_reinforce: +3.0,
+      param_golden_stereo_spread: 95.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 35.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.90,
+      macro_fluid_moisture: 0.50
+    }
+  },
+  {
+    id: "ZENON_AMYGDALA_CHURN",
+    name: "ZENON-AMYGDALA-TURBULENZ · Adaptive Churn",
+    category: "Chaotic Morph",
+    description: "Zeno-Amygdala controller dynamically hopping between K=1, 4, 8, 16 unroll depths as pressure fluctuates, chaotic RK4 Lorenz detuning.",
+    params: {
+      param_colonic_pressure: 0.78,
+      param_mucosal_tension: 0.48,
+      param_resting_aperture: 1.1,
+      param_karnopp_stiction: 0.70,
+      param_stribeck_breakaway: 2.8,
+      param_tissue_hardness: 2.2,
+      param_impact_restitution: 0.48,
+      param_vactrol_sag_tau: 95.0,
+      param_beltrami_vortex_pitch: 3.8,
+      param_reynolds_turbulence: 0.55,
+      param_multiphase_moisture: 0.45,
+      param_fluid_viscosity: 0.30,
+      param_minnaert_bubble_density: 45.0,
+      param_poisson_droplet_rate: 10.0,
+      param_euclidean_peristalsis_k: 6,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 1.25,
+      param_so16_skew_generator: 0.65,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.55,
+      param_geometric_manifold: 2, // Vocal
+      param_damping_profile: 0,   // Tissue
+      param_porcelain_cavity_mix: 45.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0, // Auto Zeno
+      param_zeno_conflict_threshold: 0.35,
+      param_lorenz_orbit_rate: 3.50,
+      param_lorenz_chaos_depth: 75.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 1,
+      param_dimension_d_mix: 40.0,
+      param_colonic_saturation_drive: 45.0,
+      param_visceral_sub_reinforce: 0.0,
+      param_golden_stereo_spread: 75.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 40.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.70,
+      macro_fluid_moisture: 0.55
+    }
+  },
+  {
+    id: "CHLADNI_ANNULAR_SPHINCTER",
+    name: "CHLADNI-RING-PERKUSSION · Elastic Plate",
+    category: "Kinetic Percussion",
+    description: "2D Chladni annular sphincter ring plate modes, crisp percussive tissue slap, high contact hardness alpha.",
+    params: {
+      param_colonic_pressure: 0.80,
+      param_mucosal_tension: 0.75,
+      param_resting_aperture: 0.5,
+      param_karnopp_stiction: 0.85,
+      param_stribeck_breakaway: 4.5,
+      param_tissue_hardness: 2.9,
+      param_impact_restitution: 0.15,
+      param_vactrol_sag_tau: 35.0,
+      param_beltrami_vortex_pitch: 2.0,
+      param_reynolds_turbulence: 0.35,
+      param_multiphase_moisture: 0.15,
+      param_fluid_viscosity: 0.15,
+      param_minnaert_bubble_density: 10.0,
+      param_poisson_droplet_rate: 2.0,
+      param_euclidean_peristalsis_k: 5,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.90,
+      param_so16_skew_generator: 0.45,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.65,
+      param_geometric_manifold: 1, // Chladni
+      param_damping_profile: 4,   // Stiff Cartilage
+      param_porcelain_cavity_mix: 25.0,
+      param_porcelain_boundary_mode: 0,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.60,
+      param_lorenz_orbit_rate: 0.80,
+      param_lorenz_chaos_depth: 15.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 0,
+      param_dimension_d_mix: 20.0,
+      param_colonic_saturation_drive: 50.0,
+      param_visceral_sub_reinforce: -4.0,
+      param_golden_stereo_spread: 70.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 10.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.75,
+      macro_fluid_moisture: 0.15
+    }
+  },
+  {
+    id: "SIGMOID_HYPERBOLIC_HORN",
+    name: "SIGMOIDALES HYPERBELHORN · Visceral Horn",
+    category: "Visceral Horn",
+    description: "Poincaré negative curvature horn acoustic dispersion, hollow sub-frequency standing waves.",
+    params: {
+      param_colonic_pressure: 0.72,
+      param_mucosal_tension: 0.42,
+      param_resting_aperture: 1.6,
+      param_karnopp_stiction: 0.55,
+      param_stribeck_breakaway: 2.1,
+      param_tissue_hardness: 2.0,
+      param_impact_restitution: 0.45,
+      param_vactrol_sag_tau: 90.0,
+      param_beltrami_vortex_pitch: 3.5,
+      param_reynolds_turbulence: 0.50,
+      param_multiphase_moisture: 0.30,
+      param_fluid_viscosity: 0.25,
+      param_minnaert_bubble_density: 35.0,
+      param_poisson_droplet_rate: 7.0,
+      param_euclidean_peristalsis_k: 4,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.80,
+      param_so16_skew_generator: 0.60,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.40,
+      param_geometric_manifold: 0, // Sigmoid Horn
+      param_damping_profile: 0,   // Tissue
+      param_porcelain_cavity_mix: 30.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.55,
+      param_lorenz_orbit_rate: 0.60,
+      param_lorenz_chaos_depth: 25.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 1,
+      param_dimension_d_mix: 35.0,
+      param_colonic_saturation_drive: 30.0,
+      param_visceral_sub_reinforce: +1.0,
+      param_golden_stereo_spread: 80.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 45.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.50,
+      macro_fluid_moisture: 0.40
+    }
+  },
+  {
+    id: "DIMENSION_STEREO_FLUTTER",
+    name: "DIMENSION-D-RAUMFLUTTER · Spatial Chorus",
+    category: "Spatial Chorus",
+    description: "Roland Dimension D tri-phase BBD chorus Mode IV, wide Golden-Ratio stereo dispersion, immune to mono cancellation.",
+    params: {
+      param_colonic_pressure: 0.68,
+      param_mucosal_tension: 0.52,
+      param_resting_aperture: 1.2,
+      param_karnopp_stiction: 0.60,
+      param_stribeck_breakaway: 2.3,
+      param_tissue_hardness: 2.1,
+      param_impact_restitution: 0.50,
+      param_vactrol_sag_tau: 80.0,
+      param_beltrami_vortex_pitch: 2.9,
+      param_reynolds_turbulence: 0.42,
+      param_multiphase_moisture: 0.40,
+      param_fluid_viscosity: 0.30,
+      param_minnaert_bubble_density: 45.0,
+      param_poisson_droplet_rate: 9.0,
+      param_euclidean_peristalsis_k: 5,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.88,
+      param_so16_skew_generator: 0.52,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.45,
+      param_geometric_manifold: 2, // Vocal
+      param_damping_profile: 2,   // Wet Elastomer
+      param_porcelain_cavity_mix: 40.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.55,
+      param_lorenz_orbit_rate: 0.70,
+      param_lorenz_chaos_depth: 20.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 3, // Mode IV
+      param_dimension_d_mix: 80.0,
+      param_colonic_saturation_drive: 25.0,
+      param_visceral_sub_reinforce: 0.0,
+      param_golden_stereo_spread: 100.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 50.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.50,
+      macro_fluid_moisture: 0.50
+    }
+  },
+  {
+    id: "EUCLIDEAN_PERISTALSIS_5_16",
+    name: "EUKLIDISCHE PERISTALTIK · Rhythmic Motor",
+    category: "Polyrhythmic Motor",
+    description: "5/16 Bjorklund Euclidean pulse sequencer driving rhythmic peristaltic bursts.",
+    params: {
+      param_colonic_pressure: 0.74,
+      param_mucosal_tension: 0.58,
+      param_resting_aperture: 0.9,
+      param_karnopp_stiction: 0.70,
+      param_stribeck_breakaway: 2.6,
+      param_tissue_hardness: 2.2,
+      param_impact_restitution: 0.45,
+      param_vactrol_sag_tau: 70.0,
+      param_beltrami_vortex_pitch: 3.0,
+      param_reynolds_turbulence: 0.40,
+      param_multiphase_moisture: 0.35,
+      param_fluid_viscosity: 0.30,
+      param_minnaert_bubble_density: 40.0,
+      param_poisson_droplet_rate: 8.0,
+      param_euclidean_peristalsis_k: 5,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.85,
+      param_so16_skew_generator: 0.50,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.45,
+      param_geometric_manifold: 2,
+      param_damping_profile: 0,
+      param_porcelain_cavity_mix: 35.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.55,
+      param_lorenz_orbit_rate: 0.65,
+      param_lorenz_chaos_depth: 25.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 1,
+      param_dimension_d_mix: 40.0,
+      param_colonic_saturation_drive: 30.0,
+      param_visceral_sub_reinforce: 0.0,
+      param_golden_stereo_spread: 75.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 45.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.55,
+      macro_fluid_moisture: 0.45
+    }
+  },
+  {
+    id: "BUCHLA_OPTICAL_VENTING",
+    name: "BUCHLA-OPTO-ABSACKUNG · Optical Vactrol Sag",
+    category: "Dynamic Pluck",
+    description: "High Buchla 292 optical vactrol sag, natural 40% emission deceleration droop over sustained notes.",
+    params: {
+      param_colonic_pressure: 0.65,
+      param_mucosal_tension: 0.60,
+      param_resting_aperture: 0.7,
+      param_karnopp_stiction: 0.68,
+      param_stribeck_breakaway: 2.4,
+      param_tissue_hardness: 2.3,
+      param_impact_restitution: 0.35,
+      param_vactrol_sag_tau: 350.0,
+      param_beltrami_vortex_pitch: 2.2,
+      param_reynolds_turbulence: 0.35,
+      param_multiphase_moisture: 0.25,
+      param_fluid_viscosity: 0.25,
+      param_minnaert_bubble_density: 25.0,
+      param_poisson_droplet_rate: 5.0,
+      param_euclidean_peristalsis_k: 3,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 0.75,
+      param_so16_skew_generator: 0.40,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.50,
+      param_geometric_manifold: 2,
+      param_damping_profile: 0,
+      param_porcelain_cavity_mix: 30.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.60,
+      param_lorenz_orbit_rate: 0.50,
+      param_lorenz_chaos_depth: 20.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 1,
+      param_dimension_d_mix: 30.0,
+      param_colonic_saturation_drive: 25.0,
+      param_visceral_sub_reinforce: -2.0,
+      param_golden_stereo_spread: 70.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 30.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.40,
+      macro_fluid_moisture: 0.30
+    }
+  },
+  {
+    id: "UNISON_QUAD_DETUNE_ROAR",
+    name: "STEREO-UNISONO-GEBRÜLL · Quad Unison Detune",
+    category: "Stereo Unison",
+    description: "4-voice stereo unison with +/-7 and +/-14 cent detune offsets and phase decorrelation, colossal wall of guttural sound.",
+    params: {
+      param_colonic_pressure: 0.82,
+      param_mucosal_tension: 0.55,
+      param_resting_aperture: 1.3,
+      param_karnopp_stiction: 0.65,
+      param_stribeck_breakaway: 2.8,
+      param_tissue_hardness: 2.2,
+      param_impact_restitution: 0.50,
+      param_vactrol_sag_tau: 85.0,
+      param_beltrami_vortex_pitch: 3.5,
+      param_reynolds_turbulence: 0.50,
+      param_multiphase_moisture: 0.45,
+      param_fluid_viscosity: 0.35,
+      param_minnaert_bubble_density: 50.0,
+      param_poisson_droplet_rate: 14.0,
+      param_euclidean_peristalsis_k: 7,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 1.15,
+      param_so16_skew_generator: 0.65,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.60,
+      param_geometric_manifold: 2,
+      param_damping_profile: 0,
+      param_porcelain_cavity_mix: 45.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.50,
+      param_lorenz_orbit_rate: 1.10,
+      param_lorenz_chaos_depth: 35.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 2,
+      param_dimension_d_mix: 60.0,
+      param_colonic_saturation_drive: 40.0,
+      param_visceral_sub_reinforce: +2.0,
+      param_golden_stereo_spread: 90.0,
+      param_voicing_mode: 2, // Stereo Unison
+      param_glide_portamento_ms: 35.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.70,
+      macro_fluid_moisture: 0.60
+    }
+  },
+  {
+    id: "BRONZE_VISCERAL_BELL",
+    name: "METALLISCHE DARMGLOCKE · Bronze Visceral",
+    category: "Metallic Hybrid",
+    description: "Bell Bronze damping profile coupled with visceral mucosal exciter, ringing metallic bowel harmonics.",
+    params: {
+      param_colonic_pressure: 0.68,
+      param_mucosal_tension: 0.65,
+      param_resting_aperture: 0.8,
+      param_karnopp_stiction: 0.72,
+      param_stribeck_breakaway: 3.2,
+      param_tissue_hardness: 2.7,
+      param_impact_restitution: 0.25,
+      param_vactrol_sag_tau: 55.0,
+      param_beltrami_vortex_pitch: 3.0,
+      param_reynolds_turbulence: 0.30,
+      param_multiphase_moisture: 0.20,
+      param_fluid_viscosity: 0.20,
+      param_minnaert_bubble_density: 20.0,
+      param_poisson_droplet_rate: 4.0,
+      param_euclidean_peristalsis_k: 4,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 1.05,
+      param_so16_skew_generator: 0.55,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.75,
+      param_geometric_manifold: 0, // Sigmoid Horn
+      param_damping_profile: 3,   // Bell Bronze
+      param_porcelain_cavity_mix: 30.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.55,
+      param_lorenz_orbit_rate: 0.75,
+      param_lorenz_chaos_depth: 30.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 1,
+      param_dimension_d_mix: 35.0,
+      param_colonic_saturation_drive: 25.0,
+      param_visceral_sub_reinforce: -2.0,
+      param_golden_stereo_spread: 85.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 25.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 0.55,
+      macro_fluid_moisture: 0.20
+    }
+  },
+  {
+    id: "KINETIC_EXPLOSIVE_BURST",
+    name: "KINETISCHER SPHINKTERSCHLAG · Seal Burst",
+    category: "Transient Artillery",
+    description: "Ultra-tight resting aperture, maximum colonic drive, violent seal-burst transients on every key onset.",
+    params: {
+      param_colonic_pressure: 1.00,
+      param_mucosal_tension: 0.90,
+      param_resting_aperture: 0.15,
+      param_karnopp_stiction: 0.99,
+      param_stribeck_breakaway: 8.5,
+      param_tissue_hardness: 2.9,
+      param_impact_restitution: 0.65,
+      param_vactrol_sag_tau: 40.0,
+      param_beltrami_vortex_pitch: 5.0,
+      param_reynolds_turbulence: 0.75,
+      param_multiphase_moisture: 0.20,
+      param_fluid_viscosity: 0.40,
+      param_minnaert_bubble_density: 35.0,
+      param_poisson_droplet_rate: 18.0,
+      param_euclidean_peristalsis_k: 8,
+      param_euclidean_peristalsis_n: 16,
+      param_triad_coupling_gain: 1.60,
+      param_so16_skew_generator: 0.80,
+      param_spherical_retraction: 1,
+      param_householder_coupling: 0.85,
+      param_geometric_manifold: 1, // Chladni
+      param_damping_profile: 0,   // Tissue
+      param_porcelain_cavity_mix: 40.0,
+      param_porcelain_boundary_mode: 1,
+      param_zeno_unroll_override: 0,
+      param_zeno_conflict_threshold: 0.30,
+      param_lorenz_orbit_rate: 1.50,
+      param_lorenz_chaos_depth: 50.0,
+      param_dimension_d_enable: 1,
+      param_dimension_d_mode: 2,
+      param_dimension_d_mix: 45.0,
+      param_colonic_saturation_drive: 75.0,
+      param_visceral_sub_reinforce: +5.0,
+      param_golden_stereo_spread: 90.0,
+      param_voicing_mode: 0,
+      param_glide_portamento_ms: 10.0,
+      param_master_volume_db: 0.0,
+      param_power_active: 1,
+      macro_gut_squeeze: 1.00,
+      macro_fluid_moisture: 0.30
+    }
+  }
+];
+
+export class PfPresetManager {
+  /**
+   * @param {Object} options
+   */
+  constructor(options = {}) {
+    this.onApplyPreset = options.onApplyPreset || null;
+    this.presets = [...FACTORY_PRESETS];
+    this.currentPresetId = FACTORY_PRESETS[0].id;
+    this.userPresets = [];
+    this._loadUserPresetsFromStorage();
+  }
+
+  _loadUserPresetsFromStorage() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem('pf02_user_presets');
+        if (stored) {
+          this.userPresets = JSON.parse(stored);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load user presets from localStorage', e);
+    }
+  }
+
+  _saveUserPresetsToStorage() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('pf02_user_presets', JSON.stringify(this.userPresets));
+      }
+    } catch (e) {
+      console.warn('Could not save user presets to localStorage', e);
+    }
+  }
+
+  getPresetById(id) {
+    return this.presets.find(p => p.id === id) || this.userPresets.find(p => p.id === id);
+  }
+
+  applyPreset(id) {
+    const preset = this.getPresetById(id);
+    if (!preset) return false;
+    this.currentPresetId = id;
+    if (typeof this.onApplyPreset === 'function') {
+      this.onApplyPreset(preset);
+    }
+    return true;
+  }
+
+  exportCurrentPatch(currentParams, patchName = "PF02_Custom_Patch") {
+    const patch = {
+      instrument: "PF-02 · Darm-Akustischer & Ultrametrischer Triaden-Synthesizer",
+      format: "RFC 8259 JSON Patch",
+      version: "2.0.0",
+      date: new Date().toISOString(),
+      name: patchName,
+      params: { ...currentParams }
+    };
+    return JSON.stringify(patch, null, 2);
+  }
+
+  downloadPatchFile(currentParams, patchName = "PF02_Patch") {
+    const jsonStr = this.exportCurrentPatch(currentParams, patchName);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${patchName.toLowerCase().replace(/[^a-z0-9_]/g, "_")}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  importPatchJSON(jsonString) {
+    try {
+      const data = JSON.parse(jsonString);
+      if (!data || typeof data !== 'object') {
+        throw new Error("Invalid JSON root");
+      }
+      const params = data.params || data;
+      return params;
+    } catch (err) {
+      throw new Error(`RFC 8259 JSON import failed: ${err.message}`);
+    }
+  }
+}
