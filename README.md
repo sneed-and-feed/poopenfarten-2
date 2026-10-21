@@ -6,7 +6,7 @@
 [![Synthesis Purity](https://img.shields.io/badge/Zero--PCM%20Audit-0%20Sample%20Tables%20(100%25%20Physical)-orange.svg)](#zero-pcm-procedural-purity-guarantee)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 
-> **PF-02** is an authoritative, first-principles procedural physical-modeling aeroacoustic synthesizer. It bridges continuous mathematical Lie-algebraic primitives from **Project DarkSnail** ($\mathfrak{so}(16)$ `SlowFastTriadCascade`, skew-symmetric bilinear operators, spherical norm retraction, and Zeno-Amygdala adaptive dynamic unrolls) with non-linear viscoelastic contact mechanics, hydrodynamic fluid dynamics, and German functionalist laboratory industrial design.
+> **PF-02** is an authoritative, first-principles procedural physical-modeling aeroacoustic synthesizer. It bridges continuous mathematical Lie-algebraic primitives from **Project DarkSnail** (`SlowFastTriadCascade` over $\mathfrak{so}(16)$, skew-symmetric bilinear operators, spherical norm retraction, and Zeno-Amygdala adaptive dynamic unrolls) with non-linear viscoelastic contact mechanics, hydrodynamic fluid dynamics, and German functionalist laboratory industrial design.
 
 ---
 
@@ -90,12 +90,12 @@ The user interface of `PF-02` embodies the rigorous functionalist laboratory ins
 - **Karnopp Stick-Slip Friction**: Velocity deadband ($v_d = 0.0015\text{ m/s}$) dividing physical mucosal tissue into sticking (static friction balance) and slipping (dynamic kinetic friction) phases.
 - **Stribeck Breakaway Velocity**: Smooth exponential breakaway velocity curve ($v_s = 0.06\text{ m/s}$) modeling the tearing transient of mucosal seal burst.
 - **Hunt-Crossley Hertzian Impact**: Viscoelastic tissue collision mechanics ($F_c = k_c x^\alpha + \lambda_c x^\alpha \dot{x}$) integrated via velocity Verlet to simulate tissue slap when aperture $y(t) \le 0$.
-- **Buchla 292 Optical Vactrol Sag**: Non-linear dual-time-constant vactrol droop ($\tau_{\text{decay}}[1 + \kappa(1-g)^2]$) with fast attack ($\approx 2\text{ ms}$) and history-dependent sluggish release.
+- **Buchla 292 Optical Vactrol Sag**: Non-linear dual-time-constant vactrol droop $(\tau_{\text{decay}}[1 + \kappa(1-g)^2])$ with fast attack $(\approx 2\text{ ms})$ and history-dependent sluggish release.
 
 ### Deck 02: Beltrami-Strahl & Minnaert-Phasenfluid (Aeroacoustics & Fluid Dynamics)
 - **Beltrami Helical Vortex Jet**: Swirling aeroacoustic jet where vorticity aligns with velocity ($\nabla \times \mathbf{v} = \lambda \mathbf{v}$), injecting wideband turbulent energy modulated by the flow Reynolds number.
 - **Minnaert Gas-Liquid Bubble Bank**: Procedural multi-bubble bank based on Marcel Minnaert's radial pulsation formula ($f = 3.28325 / R$), producing visceral wet cavitation pops with radius-dependent exponential decay.
-- **Poisson Droplet Point-Process**: Stochastic arrival time clock ($\Delta t = -\frac{\ln(1-U)}{\lambda}$) coupled to an Irwin-Hall droplet mass distribution for random mucosal splatter transients.
+- **Poisson Droplet Point-Process**: Stochastic arrival time clock $(\Delta t = -\frac{\ln(1-U)}{\lambda})$ coupled to an Irwin-Hall droplet mass distribution for random mucosal splatter transients.
 - **Bjorklund Euclidean Peristaltic Sequencer**: Bresenham-derived Euclidean rhythm algorithm $E(k, n)$ for periodic, rhythmic mucosal pulsing.
 
 ### Deck 03: $\mathfrak{so}(16)$ Triaden-Resonator & Porzellan-Feld (Modal Resonator Matrix)

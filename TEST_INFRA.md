@@ -13,7 +13,7 @@ To guarantee zero regression, total synthesis purity (zero static PCM tables or 
 1. **100% Procedural Synthesis**: Automated scanning ensures 0 bytes of static audio sample tables (`SampleBank.cpp` style), 0 hardcoded float audio arrays, and 0 Base64-encoded PCM strings.
 2. **Mathematical Invariant Rigor**: Strict numerical tolerances enforced for skew-symmetric triad antisymmetry ($< 1\text{e}-7$), tangent orthogonality ($< 1\text{e}-6$), spherical norm conservation ($< 1\text{e}-6$), and $O(N)$ Householder scattering isometry ($< 1\text{e}-6$).
 3. **Hard Real-Time Audio-Thread Safety**: Guaranteed zero heap allocations (`operator new/delete` assertion guard), zero unbounded latency, and bitwise branchless denormal flushing across all rendering blocks.
-4. **Mono Cancellation Immunity**: Mathematical proof and empirical verification that Roland Dimension D tri-phase chorus ($0^\circ, 120^\circ, 240^\circ$) preserves non-zero acoustic energy under mono-sum ($|\text{Wet}_{\text{mono}}| > 0$).
+4. **Mono Cancellation Immunity**: Mathematical proof and empirical verification that Roland Dimension D tri-phase chorus ($0^\circ, 120^\circ, 240^\circ$) preserves non-zero acoustic energy under mono-sum ($\lvert\text{Wet}_{\text{mono}}\rvert > 0$).
 5. **Numerical Stability Under Chaos**: 100,000+ continuous sample blocks tested under $+40\text{ dBFS}$ overdrive bursts and rapid parameter churn with strictly zero NaNs, infinities, or blowups.
 
 ---
@@ -37,11 +37,11 @@ To guarantee zero regression, total synthesis purity (zero static PCM tables or 
 - **Objective**: Verify the primary operational behavior (happy path, parameter modulation, and functional outputs) for every subsystem in isolation and coupled pipelines.
 - **Requirement**: A minimum of **5 distinct test assertions per feature** across all 47 features enumerated in `PROJECT.md § Feature Inventory`.
 - **Key Subsystems Tested**:
-  - *Deck 01*: Karnopp stick-slip velocity deadband ($v_d = 0.0015\text{ m/s}$), Stribeck breakaway exponential velocity ($v_s = 0.06\text{ m/s}$), Hunt-Crossley Hertzian impact contact restitution ($F_c = k_c x^\alpha + \lambda_c x^\alpha \dot{x}$), Buchla 292 optical vactrol sag ($\tau_{\text{decay}}[1 + \kappa(1-g)^2]$).
-  - *Deck 02*: Helical Beltrami vortex jet ($\nabla \times \mathbf{v} = \lambda \mathbf{v}$), Minnaert gas-liquid bubble bank ($f = \frac{3.28325}{R}$), Poisson stochastic droplet point-process clock ($\Delta t = -\ln(1-U)/\lambda$, Irwin-Hall distribution), Bjorklund Euclidean peristaltic sequencer $E(k, n)$.
-  - *Deck 03*: 16-pole Zavalishin TPT SVF bandpass filter bank, $O(N)$ Householder scattering matrix ($\mathbf{H} = \mathbf{I} - \frac{2}{16}\mathbf{1}\mathbf{1}^T$), 4 geometric manifolds (Sigmoid Horn, Chladni Ring, Vocal Tract, Porcelain Jordan Cavity), 5 viscoelastic damping profiles.
-  - *Deck 04*: DarkSnail $\mathfrak{so}(16)$ Lie generators ($A = \frac{1}{2}(B - B^\top)$), bilinear triad operator $S(W, i, c_1, c_2)$, `SlowFastTriadCascade`, Zeno-Amygdala adaptive unroll controller ($K \in \{1, 4, 8, 16\}$), 3D RK4 Lorenz strange attractor.
-  - *Deck 05*: Constant-power Golden-Ratio stereo modal panning ($\Phi = 137.508^\circ$), Roland Dimension D tri-phase BBD chorus ($0^\circ, 120^\circ, 240^\circ$), 15 Hz infrasonic DC blocker, phase-locked visceral sub-bass reinforcement, Hermite $C^1$ soft-knee BoundedSaturator + true-peak limiter.
+  - *Deck 01*: Karnopp stick-slip velocity deadband $(v_d = 0.0015\text{ m/s})$, Stribeck breakaway exponential velocity $(v_s = 0.06\text{ m/s})$, Hunt-Crossley Hertzian impact contact restitution $(F_c = k_c x^\alpha + \lambda_c x^\alpha \dot{x})$, Buchla 292 optical vactrol sag $(\tau_{\text{decay}}[1 + \kappa(1-g)^2])$.
+  - *Deck 02*: Helical Beltrami vortex jet $(\nabla \times \mathbf{v} = \lambda \mathbf{v})$, Minnaert gas-liquid bubble bank $(f = 3.28325 / R)$, Poisson stochastic droplet point-process clock $(\Delta t = -\ln(1-U)/\lambda)$, Bjorklund Euclidean peristaltic sequencer $E(k, n)$.
+  - *Deck 03*: 16-pole Zavalishin TPT SVF bandpass filter bank, $O(N)$ Householder scattering matrix $(\mathbf{H} = \mathbf{I} - \frac{2}{16}\mathbf{1}\mathbf{1}^T)$, 4 geometric manifolds (Sigmoid Horn, Chladni Ring, Vocal Tract, Porcelain Jordan Cavity), 5 viscoelastic damping profiles.
+  - *Deck 04*: DarkSnail $\mathfrak{so}(16)$ Lie generators $(A = \frac{1}{2}(B - B^\top))$, bilinear triad operator $S(W, i, c_1, c_2)$, `SlowFastTriadCascade`, Zeno-Amygdala adaptive unroll controller $(K \in \lbrace 1, 4, 8, 16\rbrace)$, 3D RK4 Lorenz strange attractor.
+  - *Deck 05*: Constant-power Golden-Ratio stereo modal panning $(\Phi = 137.508^\circ)$, Roland Dimension D tri-phase BBD chorus $(0^\circ, 120^\circ, 240^\circ)$, 15 Hz infrasonic DC blocker, phase-locked visceral sub-bass reinforcement, Hermite $C^1$ soft-knee BoundedSaturator + true-peak limiter.
   - *Voice & Telemetry*: Polyphonic voice architecture (Mono-Legato, Poly 8-Voice, Stereo Unison Detune), APVTS 40-parameter matrix, lock-free SPSC telemetry queue.
 
 ### 2.2 Tier 2: Boundary, Multirate & Buffer Resilience
@@ -59,31 +59,72 @@ To guarantee zero regression, total synthesis purity (zero static PCM tables or 
   - Input with subnormal float values ($1\text{e}-38$) properly flushed to zero without CPU stall.
 
 ### 2.3 Tier 3: Cross-Feature Interactions & Mathematical Invariants
-- **Objective**: Mathematically verify the fundamental physical and Lie-algebraic theorems underpinning Poopenfarten II.
-- **Invariant Specifications & Numerical Thresholds**:
-  1. **Skew-Symmetric Triad Antisymmetry**:
-     $$\forall i, c_1, c_2: \quad |S(W, i, c_1, c_2) + S(W, i, c_2, c_1)| < 1.0 \times 10^{-7}$$
-     $$\forall i, c: \quad |S(W, i, c, c)| < 1.0 \times 10^{-7}$$
-  2. **Exact Pointwise Tangent Orthogonality**:
-     $$|\langle v, B_W(u, v) \rangle| < 1.0 \times 10^{-6}$$
-  3. **Multi-Step Spherical Norm Conservation (`SlowFastTriadCascade`)**:
-     Across unroll depths $K \in \{1, 4, 8, 16\}$, initial state $v^{(0)}$ and retracted state $\tilde{v}^{(T)}$ satisfy:
-     $$\left| \|\tilde{v}^{(T)}\|_2^2 - \|v^{(0)}\|_2^2 \right| < 1.0 \times 10^{-6}$$
-     Guaranteeing exactly $0.000\text{e}+00$ radial drift on the $S^{15}$ hypersphere.
-  4. **$O(N)$ Householder Scattering Isometry**:
-     For $\mathbf{H} = \mathbf{I} - \frac{2}{N}\mathbf{1}\mathbf{1}^T$ ($N=16$):
-     $$\left| \|\mathbf{H}\mathbf{y}\|_2 - \|\mathbf{y}\|_2 \right| < 1.0 \times 10^{-6} \quad \forall \mathbf{y} \in \mathbb{R}^{16}$$
-  5. **Roland Dimension D Mono-Sum Cancellation Immunity**:
-     With wet chorus enabled and left/right outputs summed to mono:
-     $$\frac{\|\text{Wet}_{\text{mono}}\|_2}{\|\text{Dry}\|_2} \ge \frac{\sqrt{3}}{4} > 0.40$$
-     Zero phase-cancellation nulls across $20\text{ Hz} - 20\text{ kHz}$ frequency sweeps.
-  6. **Zeno-Amygdala Adaptive Unroll Monotonicity**:
-     As triad flux $\Phi_{\text{Zeno}}$ and pressure conflict increase, unroll depth $K$ escalates monotonically:
-     $$T_{\text{Zeno}} < 0.45 \implies K = 1, \quad T_{\text{Zeno}} \ge 0.75 \implies K = 16$$
-  7. **Hermite Soft-Knee BoundedSaturator Asymptotic Ceiling**:
-     $$\forall x \in \mathbb{R}: \quad |y(x)| \le 1.0500 \quad (0.42\text{ dBFS ceiling})$$
-     $$|x| \le 0.72 \implies y(x) = x \quad (\text{exact linear transparency})$$
-     $$C^1 \text{ continuous first derivative across transition point } k=0.72.$$
+
+**Objective**: Mathematically verify the fundamental physical and Lie-algebraic theorems underpinning Poopenfarten II.
+
+#### 1. Skew-Symmetric Triad Antisymmetry
+
+```math
+\forall i, c_1, c_2: \quad \lvert S(W, i, c_1, c_2) + S(W, i, c_2, c_1) \rvert < 1.0 \times 10^{-7}
+```
+
+```math
+\forall i, c: \quad \lvert S(W, i, c, c) \rvert < 1.0 \times 10^{-7}
+```
+
+#### 2. Exact Pointwise Tangent Orthogonality
+
+```math
+\lvert \langle v, B_W(u, v) \rangle \rvert < 1.0 \times 10^{-6}
+```
+
+#### 3. Multi-Step Spherical Norm Conservation (`SlowFastTriadCascade`)
+
+Across unroll depths $K \in \lbrace 1, 4, 8, 16\rbrace$, initial state $v^{(0)}$ and retracted state $\tilde{v}^{(T)}$ satisfy:
+
+```math
+\left\lvert \lVert\tilde{v}^{(T)}\rVert_2^2 - \lVert v^{(0)}\rVert_2^2 \right\rvert < 1.0 \times 10^{-6}
+```
+
+guaranteeing $0.000\text{e}+00$ radial drift on the $S^{15}$ hypersphere.
+
+#### 4. $O(N)$ Householder Scattering Isometry
+
+For $\mathbf{H} = \mathbf{I} - \frac{2}{N}\mathbf{1}\mathbf{1}^T$ with $N=16$:
+
+```math
+\left\lvert \lVert\mathbf{H}\mathbf{y}\rVert_2 - \lVert\mathbf{y}\rVert_2 \right\rvert < 1.0 \times 10^{-6} \quad \forall \mathbf{y} \in \mathbb{R}^{16}
+```
+
+#### 5. Roland Dimension D Mono-Sum Cancellation Immunity
+
+With wet chorus enabled and left/right outputs summed to mono:
+
+```math
+\frac{\lVert\text{Wet}_{\text{mono}}\rVert_2}{\lVert\text{Dry}\rVert_2} \ge \frac{\sqrt{3}}{4} > 0.40
+```
+
+with zero phase-cancellation nulls across $20\text{ Hz} - 20\text{ kHz}$ frequency sweeps.
+
+#### 6. Zeno-Amygdala Adaptive Unroll Monotonicity
+
+As triad flux $\Phi_{\text{Zeno}}$ and pressure conflict increase, unroll depth $K$ escalates monotonically:
+
+```math
+T_{\text{Zeno}} < 0.45 \implies K = 1, \quad T_{\text{Zeno}} \ge 0.75 \implies K = 16
+```
+
+#### 7. Hermite Soft-Knee BoundedSaturator Asymptotic Ceiling
+
+```math
+\forall x \in \mathbb{R}: \quad \lvert y(x) \rvert \le 1.0500 \quad (0.42\text{ dBFS ceiling})
+```
+
+```math
+\lvert x \rvert \le 0.72 \implies y(x) = x \quad (\text{exact linear transparency})
+```
+
+with $C^1$ continuous first derivative across transition point $k=0.72$.
 
 ### 2.4 Tier 4: Real-World Scenarios & Adversarial Hardening
 - **Objective**: Full-system stress testing under production presets, multi-voice polyphony, and adversarial chaos.
@@ -174,6 +215,6 @@ Executes:
 | Spherical Norm Radial Drift | $< 1.0 \times 10^{-6}$ | `Tier3_MathematicalInvariantTests.h` |
 | Householder Scattering Error | $< 1.0 \times 10^{-6}$ | `Tier3_MathematicalInvariantTests.h` |
 | Audio-Thread Allocations | Exactly 0 bytes / 0 calls | `Tier4_StressTests.h` (`operator new` guard) |
-| Audio Output Peak Limiting | $\le 1.0500$ ($\le 0.42\text{ dBFS}$) | `Tier3` & `Tier4` saturator tests |
+| Audio Output Peak Limiting | $\le 1.0500$ $(\le 0.42\text{ dBFS})$ | `Tier3` & `Tier4` saturator tests |
 | Embedded PCM Samples | Exactly 0 instances | `scripts/audit_zero_pcm.py` |
 | Web UI & Preset Compliance | 16 presets, RFC 8259, DIN 1451 | `web/verify.mjs` |

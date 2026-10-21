@@ -23,9 +23,9 @@ Poopenfarten II (`PF-02 · Darm-Akustischer & Ultrametrischer Triaden-Synthesize
 | **Web UI & Visualizer Integration** | 115 / 115 checks | **115 / 115 passed** | **100% PASS** |
 | **Zero-PCM Procedural Purity Audit** | 0 static tables / samples | **0 violations** across 46 source files | **100% PASS** |
 | **Audio-Thread Heap Allocations** | Exactly 0 allocations | **0 allocations** (`gAllocationCount == 0`) | **100% PASS** |
-| **Mono Chorus Cancellation Immunity** | Zero phase cancellation nulls | $|\text{Wet}_{\text{mono}}| > 0$ ($10\text{ Hz} - 20\text{ kHz}$) | **100% PASS** |
+| **Mono Chorus Cancellation Immunity** | Zero phase cancellation nulls | $\lvert\text{Wet}_{\text{mono}}\rvert > 0$ $(10\text{ Hz} - 20\text{ kHz})$ | **100% PASS** |
 | **Spherical Norm Retraction Drift** | $< 1.0\times 10^{-6}$ on $S^{15}$ | **$0.000\text{e}+00$ radial drift** | **100% PASS** |
-| **Householder Scattering Isometry** | $\|\mathbf{Hy}\|_2 = \|\mathbf{y}\|_2$ | $|\Delta \|\mathbf{y}\|_2| < 1.0\times 10^{-6}$ | **100% PASS** |
+| **Householder Scattering Isometry** | $\lVert\mathbf{Hy}\rVert_2 = \lVert\mathbf{y}\rVert_2$ | $\lvert\Delta \lVert\mathbf{y}\rVert_2\rvert < 1.0\times 10^{-6}$ | **100% PASS** |
 | **True-Peak Output Containment** | $\le 1.0500$ peak (+0.42 dBFS) | **Peak $\le 1.0500$** under $+40\text{ dBFS}$ drive | **100% PASS** |
 
 ---
@@ -131,12 +131,12 @@ Every feature defined in `PROJECT.md § Feature Inventory` is mapped below to it
   - Vectors exceeding $1.0\times 10^{-7}$: **0 / 1,000**.
 
 ### Invariant 3: Spherical Norm Retraction Conservation on $S^{15}$
-- **Property**: Across unroll depths $K \in \{1, 4, 8, 16\}$, $\|\tilde{\mathbf{v}}\|_2 = \|\mathbf{v}_0\|_2$.
+- **Property**: Across unroll depths $K \in \{1, 4, 8, 16\}$, $\|\tilde{\mathbf{v}}\|_2 = \|v_0\|_2$.
 - **Empirical Measurement**:
-  - $K = 1$: Radial drift **$3.493\times 10^{-7}$**, tangent orthogonality error $5.960\times 10^{-8}$.
-  - $K = 4$: Radial drift **$3.621\times 10^{-7}$**, tangent orthogonality error $1.192\times 10^{-7}$.
-  - $K = 8$: Radial drift **$3.812\times 10^{-7}$**, tangent orthogonality error $1.490\times 10^{-7}$.
-  - $K = 16$: Radial drift **$3.111\times 10^{-7}$**, tangent orthogonality error $1.788\times 10^{-7}$.
+  - **Unroll** $K = 1$: Radial drift **$3.493\times 10^{-7}$**, tangent orthogonality error $5.960\times 10^{-8}$.
+  - **Unroll** $K = 4$: Radial drift **$3.621\times 10^{-7}$**, tangent orthogonality error $1.192\times 10^{-7}$.
+  - **Unroll** $K = 8$: Radial drift **$3.812\times 10^{-7}$**, tangent orthogonality error $1.490\times 10^{-7}$.
+  - **Unroll** $K = 16$: Radial drift **$3.111\times 10^{-7}$**, tangent orthogonality error $1.788\times 10^{-7}$.
   - Worst-Case Radial Drift: **$3.812\times 10^{-7}$** (Strictly $< 1.0\times 10^{-6}$).
 
 ### Invariant 4: $O(N)$ Householder Scattering Isometry

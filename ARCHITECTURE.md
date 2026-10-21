@@ -233,16 +233,16 @@ F_{\text{slip}}(v) = \left[ F_C + (F_S - F_C) \, e^{-(v / v_s)^2} \right] + \sig
 ```
 
 where:
-- $F_C = \mu_k F_N$ is the Coulomb kinetic friction force.
-- $F_S = \mu_s F_N$ is the maximum static breakaway friction force ($\mu_s > \mu_k$).
-- $v_s = 0.06\text{ m/s}$ is the characteristic Stribeck breakaway velocity.
-- $\sigma_v$ is the viscous fluid damping coefficient.
+- **Coulomb Kinetic Force**: $F_C = \mu_k F_N$ is the Coulomb kinetic friction force.
+- **Static Breakaway Force**: $F_S = \mu_s F_N$ is the maximum static breakaway friction force $(\mu_s > \mu_k)$.
+- **Stribeck Velocity**: $v_s = 0.06\text{ m/s}$ is the characteristic Stribeck breakaway velocity.
+- **Viscous Damping**: $\sigma_v$ is the viscous fluid damping coefficient.
 
 The steep drop in friction as $|v| > v_s$ produces strong negative-damping instability, generating the self-sustained aeroacoustic oscillations of the mucosal aperture.
 
 ### Hunt-Crossley Hertzian Viscoelastic Contact Impact
 
-When the aperture closes completely ($y(t) \le 0$), opposing mucosal surfaces collide. Linear Kelvin-Voigt contact models exhibit unphysical negative tension forces immediately prior to separation. `PF-02` implements the non-linear **Hunt-Crossley Contact Model**:
+When the aperture closes completely $(y(t) \le 0)$, opposing mucosal surfaces collide. Linear Kelvin-Voigt contact models exhibit unphysical negative tension forces immediately prior to separation. `PF-02` implements the non-linear **Hunt-Crossley Contact Model**:
 
 ```math
 F_{\text{contact}}(x, \dot{x}) = \begin{cases}
@@ -252,10 +252,10 @@ k_c \, x^\alpha + \lambda_c \, x^\alpha \, \dot{x}, & x > 0 \quad (\text{Tissue 
 ```
 
 where:
-- $x = -y$ represents tissue compression depth.
-- $\alpha = 1.5$ corresponds to Hertzian contact between non-conforming spherical/cylindrical mucosal folds.
-- $k_c$ is non-linear tissue stiffness ($N/\text{m}^{1.5}$).
-- $\lambda_c$ is the viscoelastic damping coefficient, guaranteeing zero force jump upon initial contact ($x=0 \implies F_{\text{contact}} = 0$).
+- **Compression Depth**: $x = -y$ represents tissue compression depth.
+- **Hertzian Exponent**: $\alpha = 1.5$ corresponds to Hertzian contact between non-conforming spherical/cylindrical mucosal folds.
+- **Contact Stiffness**: $k_c$ is non-linear tissue stiffness $(N/\text{m}^{1.5})$.
+- **Viscoelastic Damping**: $\lambda_c$ is the viscoelastic damping coefficient, guaranteeing zero force jump upon initial contact $(x=0 \implies F_{\text{contact}} = 0)$.
 
 The state is integrated via **Velocity Verlet**:
 
@@ -288,10 +288,10 @@ f_{\text{bubble}} = \frac{1}{2\pi R} \sqrt{\frac{3 \gamma P_0}{\rho}} \approx \f
 ```
 
 where:
-- $R$ is bubble radius ($0.0005\text{ m} \le R \le 0.015\text{ m}$).
-- $\gamma = 1.4$ is the adiabatic expansion index.
-- $P_0 = 101,325\text{ Pa}$ is ambient atmospheric pressure.
-- $\rho = 1000\text{ kg/m}^3$ is fluid density.
+- **Bubble Radius**: $R$ is bubble radius $(0.0005\text{ m} \le R \le 0.015\text{ m})$.
+- **Adiabatic Index**: $\gamma = 1.4$ is the adiabatic expansion index.
+- **Ambient Pressure**: $P_0 = 101,325\text{ Pa}$ is ambient atmospheric pressure.
+- **Fluid Density**: $\rho = 1000\text{ kg/m}^3$ is fluid density.
 
 The bubble bank maintains an active pool of 8 procedural resonators. When a bubble nucleates at radius $R$, it emits a decaying acoustic pressure wave:
 
@@ -405,7 +405,7 @@ Damping factors $Q_m$ scale across frequency according to physical material loss
 Q_m = Q_0 \cdot \eta_{\text{mat}}(m)
 ```
 
-1. **Mucosal Tissue**: Heavily damped high frequencies ($\eta(m) = 1 / \sqrt{m}$), warm fleshy decay.
+1. **Mucosal Tissue**: Heavily damped high frequencies $(\eta(m) = 1 / \sqrt{m})$, warm fleshy decay.
 2. **Porcelain Ceramic**: Ultra-high Q ($Q_0 \approx 45.0$), slow exponential decay, crystal-like ring.
 3. **Wet Elastomer**: Moderate low-Q resonance, frequency-independent viscoelastic hysteresis.
 4. **Bell Bronze**: Very low damping, rich inharmonic metallic sustain.
@@ -446,9 +446,9 @@ with standard chaotic parameters $\sigma = 10.0$, $\rho = 28.0$, $\beta = \frac{
 ```
 
 The normalized state $(x, y, z)$ modulates the modal matrix:
-- $x(t)$ modulates odd modal frequencies: $f_{\text{odd}} \gets f_{\text{odd}} \cdot (1 + 0.035 x)$.
-- $y(t)$ modulates even modal frequencies: $f_{\text{even}} \gets f_{\text{even}} \cdot (1 + 0.035 y)$.
-- $z(t)$ modulates the global damping factor $Q$.
+- **Coordinate X**: $x(t)$ modulates odd modal frequencies via $f_{\text{odd}} \gets f_{\text{odd}} \cdot (1 + 0.035 x)$.
+- **Coordinate Y**: $y(t)$ modulates even modal frequencies via $f_{\text{even}} \gets f_{\text{even}} \cdot (1 + 0.035 y)$.
+- **Coordinate Z**: $z(t)$ modulates the global damping factor $Q$.
 
 ### Roland Dimension D Tri-Phase BBD Chorus (Mono Immunity Proof)
 
