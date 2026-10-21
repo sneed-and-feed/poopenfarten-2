@@ -90,6 +90,7 @@ public:
 
     void prepare(double sampleRate) noexcept;
     void reset() noexcept;
+    void dampStates(float factor = 0.25f) noexcept;
 
     // Process a single audio sample:
     // takes wideband aeroacoustic exciter input and generates stereo panned output (outL, outR)
@@ -137,6 +138,8 @@ private:
 
     // 3. 2D Continuous Spectral Jordan Cavity Field
     ContinuousSpectralJordanField mJordanField;
+    int mCachedBoundaryMode { -1 };
+    ModalArray mCachedCavityModes {};
 
     // 4. Acyclic Prime Delay Lines for Householder Tail Diffusion
     // D1 = 13.7 ms (~658 samples at 48k), D2 = 19.3 ms (~926 samples at 48k)

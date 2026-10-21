@@ -25,6 +25,8 @@ class PfApp {
     this.scriptNode = null;
     this.modalExtractor = new SpectralModalExtractor();
     this.audioInitialized = false;
+    this._audioInitPromise = null;
+    this.pendingAudioEvents = [];
 
     // Initialize all 40 APVTS parameters with defaults
     this._initDefaultParameters();
@@ -87,6 +89,9 @@ class PfApp {
     this._initThemeAndPower();
     this._initWavRecorder();
     this._initWebView2Bridge();
+    if (typeof window !== 'undefined' && window.__JUCE_INITIAL_PARAMS__) {
+      this.setAllParameters(window.__JUCE_INITIAL_PARAMS__, false);
+    }
     this._initMockTelemetryGenerator();
     this._initDragDrop();
     this._initUserAudioTrigger();
@@ -149,6 +154,7 @@ class PfApp {
 
       selectPreset.addEventListener('change', (e) => {
         this.presetManager.applyPreset(e.target.value);
+        if (typeof e.target.blur === 'function') e.target.blur();
       });
     }
 
@@ -206,13 +212,20 @@ class PfApp {
     if (selectPreset) selectPreset.value = preset.id;
   }
 
-  setAllParameters(params) {
+  setAllParameters(params, broadcast = true) {
     Object.keys(params).forEach(id => {
       const val = params[id];
-      this.setParameter(id, val, false);
+      this.setParameter(id, val, broadcast);
       const knob = this.knobs.get(id);
       if (knob) knob.setValue(val, false);
     });
+    if (this.macroPad && (params.macro_gut_squeeze !== undefined || params.macro_fluid_moisture !== undefined)) {
+      this.macroPad.setValues(
+        this.parameters.macro_gut_squeeze ?? 0.5,
+        this.parameters.macro_fluid_moisture ?? 0.5,
+        false
+      );
+    }
     this._updateChoiceButtonsFromParams();
   }
 
@@ -429,6 +442,7 @@ class PfApp {
       selectTheme.addEventListener('change', (e) => {
         this.theme = e.target.value;
         document.documentElement.setAttribute('data-theme', this.theme);
+        if (typeof e.target.blur === 'function') e.target.blur();
       });
     }
 
@@ -545,21 +559,38 @@ class PfApp {
   }
 
   async _ensureAudioContext() {
-    if (this.audioCtx) {
+    if (typeof window !== 'undefined' && window.__IS_JUCE__) {
+      return;
+    }
+    if (this.audioInitialized && this.audioCtx) {
       if (this.audioCtx.state === 'suspended') {
         await this.audioCtx.resume();
       }
       return;
     }
 
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return;
-
-    this.audioCtx = new AudioContextClass();
-    if (this.audioCtx.state === 'suspended') {
-      await this.audioCtx.resume();
+    if (this._audioInitPromise) {
+      return this._audioInitPromise;
     }
-    await this._initAudioEngine();
+
+    this._audioInitPromise = (async () => {
+      try {
+        if (!this.audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) return;
+          this.audioCtx = new AudioContextClass();
+        }
+        if (this.audioCtx.state === 'suspended') {
+          await this.audioCtx.resume();
+        }
+        await this._initAudioEngine();
+        this._flushPendingAudioEvents();
+      } finally {
+        this._audioInitPromise = null;
+      }
+    })();
+
+    return this._audioInitPromise;
   }
 
   async _initAudioEngine() {
@@ -627,6 +658,43 @@ class PfApp {
     }
   }
 
+  _sendEventToEngine(eventType, payload) {
+    if (this.workletNode) {
+      if (eventType === 'noteOn') {
+        this.workletNode.port.postMessage({
+          type: 'noteOn',
+          note: payload.midiNote,
+          velocity: payload.velocity,
+          freqHz: payload.freqHz
+        });
+      } else if (eventType === 'noteOff') {
+        this.workletNode.port.postMessage({ type: 'noteOff', note: payload.midiNote });
+      } else if (eventType === 'pitchBend') {
+        this.workletNode.port.postMessage({ type: 'pitchBend', semitones: (payload.cents || 0) / 100.0 });
+      } else if (eventType === 'kineticBurst') {
+        this.workletNode.port.postMessage({ type: 'kineticBurst', burstType: payload.burstType, velocity: payload.velocity });
+      }
+    } else if (this.dspEngine) {
+      if (eventType === 'noteOn') {
+        this.dspEngine.noteOn(payload.midiNote, payload.velocity, payload.freqHz);
+      } else if (eventType === 'noteOff') {
+        this.dspEngine.noteOff(payload.midiNote);
+      } else if (eventType === 'pitchBend') {
+        this.dspEngine.pitchBend((payload.cents || 0) / 100.0);
+      } else if (eventType === 'kineticBurst') {
+        this.dspEngine.triggerKineticBurst(payload.burstType, payload.velocity);
+      }
+    }
+  }
+
+  _flushPendingAudioEvents() {
+    if (!this.pendingAudioEvents || this.pendingAudioEvents.length === 0) return;
+    const queued = this.pendingAudioEvents.splice(0, this.pendingAudioEvents.length);
+    for (const evt of queued) {
+      this._sendEventToEngine(evt.eventType, evt.payload);
+    }
+  }
+
   // --- Parameter Dispatch & WebView2 Bridge ---
   setParameter(paramId, value, broadcast = true) {
     this.parameters[paramId] = value;
@@ -659,40 +727,15 @@ class PfApp {
   }
 
   _dispatchAudioEvent(eventType, payload) {
-    this._ensureAudioContext();
-
-    if (this.workletNode) {
-      if (eventType === 'noteOn') {
-        this.workletNode.port.postMessage({ type: 'noteOn', note: payload.midiNote, velocity: payload.velocity });
-      } else if (eventType === 'noteOff') {
-        this.workletNode.port.postMessage({ type: 'noteOff', note: payload.midiNote });
-      } else if (eventType === 'pitchBend') {
-        this.workletNode.port.postMessage({ type: 'pitchBend', semitones: (payload.cents || 0) / 100.0 });
-      } else if (eventType === 'kineticBurst') {
-        this.workletNode.port.postMessage({ type: 'kineticBurst', burstType: payload.burstType, velocity: payload.velocity });
-      }
-    } else if (this.dspEngine) {
-      if (eventType === 'noteOn') {
-        this.dspEngine.noteOn(payload.midiNote, payload.velocity);
-      } else if (eventType === 'noteOff') {
-        this.dspEngine.noteOff(payload.midiNote);
-      } else if (eventType === 'pitchBend') {
-        this.dspEngine.pitchBend((payload.cents || 0) / 100.0);
-      } else if (eventType === 'kineticBurst') {
-        const v = this.dspEngine.voiceManager.voices[0];
-        if (payload.burstType === 'impulse') {
-          v.mucosalExciter.triggerSlap(payload.velocity, 2.8);
-          v.noteOn(33, payload.velocity);
-        } else if (payload.burstType === 'breakaway') {
-          v.mucosalExciter.triggerSealBurst(payload.velocity * 2.0);
-          v.noteOn(33, payload.velocity);
-        } else if (payload.burstType === 'splatter') {
-          v.aeroFluidEngine.triggerFlapBurst(payload.velocity, 0.9, 30.0);
-          v.noteOn(33, payload.velocity);
-        } else if (payload.burstType === 'cavity') {
-          v.modalMatrix.jordanField.generateCavityField(1.5, 0.8, 3);
-          v.noteOn(33, payload.velocity);
+    if (!(typeof window !== 'undefined' && window.__IS_JUCE__)) {
+      if (this.audioInitialized && (this.workletNode || this.dspEngine)) {
+        if (this.audioCtx && this.audioCtx.state === 'suspended') {
+          this.audioCtx.resume();
         }
+        this._sendEventToEngine(eventType, payload);
+      } else {
+        this.pendingAudioEvents.push({ eventType, payload });
+        this._ensureAudioContext();
       }
     }
 
@@ -720,6 +763,14 @@ class PfApp {
           this.setParameter(msg.paramId, msg.value, false);
           const knob = this.knobs.get(msg.paramId);
           if (knob) knob.setValue(msg.value, false);
+          if (this.macroPad && (msg.paramId === 'macro_gut_squeeze' || msg.paramId === 'macro_fluid_moisture')) {
+            this.macroPad.setValues(
+              this.parameters.macro_gut_squeeze ?? 0.5,
+              this.parameters.macro_fluid_moisture ?? 0.5,
+              false
+            );
+          }
+          this._updateChoiceButtonsFromParams();
         }
       });
     }

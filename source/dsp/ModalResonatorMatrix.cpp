@@ -46,6 +46,16 @@ void ModalResonatorMatrix::reset() noexcept {
     mDiffuserFilter2.reset();
 
     mTriadCascade.reset();
+    mCachedBoundaryMode = -1;
+    mCachedCavityModes.fill(0.0f);
+}
+
+void ModalResonatorMatrix::dampStates(float factor) noexcept {
+    for (size_t i = 0; i < kNumModes; ++i) {
+        mS1[i] = flushDenormal(mS1[i] * factor);
+        mS2[i] = flushDenormal(mS2[i] * factor);
+        mSlowState[i] = flushDenormal(mSlowState[i] * factor);
+    }
 }
 
 void ModalResonatorMatrix::computeBaseRatios(GeometricManifold manifold, float morph, ModalArray& outRatios) const noexcept {
@@ -138,7 +148,7 @@ void ModalResonatorMatrix::updateFilterCoefficients(const ModalMatrixParams& par
     ModalArray baseQ {};
     getDampingQ(params.damping, baseQ);
 
-    const float f0 = std::clamp(params.fundamentalHz, 7.0f, 600.0f);
+    const float f0 = std::clamp(params.fundamentalHz, 7.0f, 2000.0f);
     const float nyquist = mSampleRate * 0.49f;
 
     // Golden-Ratio Stereo Panning law: Phi = 137.507764 deg (2.39996323 rad)
@@ -161,8 +171,10 @@ void ModalResonatorMatrix::updateFilterCoefficients(const ModalMatrixParams& par
         mK[i] = k;
         mA1[i] = 1.0f / (1.0f + g * (g + k));
 
-        // Energy normalization: ensures uniform perceptual energy density across high Q
-        mQNorm[i] = std::sqrt(28.0f / (1.0f + 0.05f * qMode));
+        // Input Q-normalization: scales excitation so internal SVF states s1, s2 remain bounded
+        // while preserving rich resonant presence for high-Q profiles (Porcelain Q=125, BellBronze Q=240).
+        const float highQComp = std::pow(std::max(1.0f, qMode / 18.0f), 0.38f);
+        mQNorm[i] = k * std::sqrt(8.0f + 1.8f * qMode) * highQComp;
 
         // Golden Ratio Panning coefficients
         const float angle = std::fmod(static_cast<float>(i) * kGoldenAngleRad + mLorenzPanOffset, kTwoPi);
@@ -188,13 +200,14 @@ void ModalResonatorMatrix::processSample(
     const float tailDiff = (diff1 + diff2) * 0.5f;
 
     // Excitation input injected into modal resonators
-    const float xIn = exciterInput + tailDiff * 0.25f;
+    const float xIn = exciterInput + tailDiff * 0.14f;
 
     // 2. 16-Pole Zavalishin TPT SVF Bandpass Matrix Step
     ModalArray modeOutputs {};
 
     for (size_t i = 0; i < kNumModes; ++i) {
-        const float vHp = mA1[i] * (xIn - (mK[i] + mG[i]) * mS1[i] - mS2[i]);
+        const float modeIn = xIn * mQNorm[i];
+        const float vHp = mA1[i] * (modeIn - (mK[i] + mG[i]) * mS1[i] - mS2[i]);
         const float vBp = mG[i] * vHp + mS1[i];
         const float vLp = mG[i] * vBp + mS2[i];
 
@@ -219,8 +232,8 @@ void ModalResonatorMatrix::processSample(
         mS1[i] = flushDenormal(std::clamp(nextS1, -4.0f, 4.0f));
         mS2[i] = flushDenormal(std::clamp(nextS2, -4.0f, 4.0f));
 
-        // Mode output with Q energy normalization
-        const float yOut = vBp * mQNorm[i];
+        // Mode output (already Q-normalized at input so s1/s2 remain linear)
+        const float yOut = vBp;
         modeOutputs[i] = flushDenormal(yOut);
 
         // Track modal energy for CRT oscilloscope telemetry
@@ -232,11 +245,11 @@ void ModalResonatorMatrix::processSample(
     const float hhCoupling = std::clamp(params.householderCoupling, 0.0f, 1.0f);
     applyHouseholderScattering16(modeOutputs, hhCoupling);
 
-    // Feed Householder diffused energy sum into acyclic prime delay lines
+    // Feed Householder diffused energy sum into acyclic prime delay lines (bounded feedback < 1)
     float modalSum = 0.0f;
     for (size_t i = 0; i < kNumModes; ++i) modalSum += modeOutputs[i];
-    mDelay1.write(modalSum * 0.12f);
-    mDelay2.write(-modalSum * 0.12f);
+    mDelay1.write(modalSum * 0.025f);
+    mDelay2.write(-modalSum * 0.025f);
 
     // 4. DarkSnail Skew-Symmetric Bilinear Triad Coupling & SlowFastTriadCascade in so(16)
     // Smooth slow state vector
@@ -260,11 +273,14 @@ void ModalResonatorMatrix::processSample(
     // 5. 2D Continuous Spectral Jordan Cavity Resonance Mix
     const float cavityMix = std::clamp(params.porcelainCavityMix * 0.01f, 0.0f, 1.0f);
     if (cavityMix > 0.001f) {
-        mJordanField.generateCavityField(1.0f, 0.65f, params.porcelainBoundaryMode);
-        const ModalArray cavityModes = mJordanField.projectTo16Modes();
+        if (mCachedBoundaryMode != params.porcelainBoundaryMode) {
+            mCachedBoundaryMode = params.porcelainBoundaryMode;
+            mJordanField.generateCavityField(1.0f, 0.65f, params.porcelainBoundaryMode);
+            mCachedCavityModes = mJordanField.projectTo16Modes();
+        }
         for (size_t i = 0; i < kNumModes; ++i) {
-            coupledModes[i] = flushDenormal(coupledModes[i] * (1.0f - cavityMix * 0.35f) +
-                                            coupledModes[i] * cavityModes[i] * cavityMix * 0.75f);
+            const float cavityGain = 0.78f + 0.65f * std::abs(mCachedCavityModes[i]);
+            coupledModes[i] = flushDenormal(coupledModes[i] * ((1.0f - cavityMix) + cavityMix * cavityGain));
         }
     }
 
@@ -277,8 +293,8 @@ void ModalResonatorMatrix::processSample(
         accR += coupledModes[i] * mPanR[i];
     }
 
-    outL = flushDenormal(accL * 0.25f);
-    outR = flushDenormal(accR * 0.25f);
+    outL = flushDenormal(accL * 0.42f);
+    outR = flushDenormal(accR * 0.42f);
 }
 
 } // namespace pf02::dsp

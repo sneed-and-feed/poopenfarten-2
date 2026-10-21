@@ -259,9 +259,9 @@ void Pf02AudioProcessor::parameterChanged(const juce::String& parameterID, float
 // ============================================================================
 // Performance Triggers
 // ============================================================================
-void Pf02AudioProcessor::noteOn(int midiNote, float velocity) noexcept
+void Pf02AudioProcessor::noteOn(int midiNote, float velocity, float freqHz) noexcept
 {
-    mAudioEngine.noteOn(midiNote, velocity);
+    mAudioEngine.noteOn(midiNote, velocity, freqHz);
 }
 
 void Pf02AudioProcessor::noteOff(int midiNote, float velocity) noexcept
@@ -282,19 +282,15 @@ void Pf02AudioProcessor::allNotesOff() noexcept
 void Pf02AudioProcessor::triggerKineticBurst(const juce::String& burstType, float velocity) noexcept
 {
     if (burstType.equalsIgnoreCase("impulse")) {
-        // Percussive tissue slapdown
-        mAudioEngine.noteOn(48, velocity);
+        mAudioEngine.triggerKineticBurst("impulse", velocity);
     } else if (burstType.equalsIgnoreCase("breakaway")) {
-        // High-tension Stribeck seal rupture burst
-        mAudioEngine.noteOn(36, velocity);
+        mAudioEngine.triggerKineticBurst("breakaway", velocity);
     } else if (burstType.equalsIgnoreCase("splatter")) {
-        // Minnaert multiphase droplet splatter
-        mAudioEngine.noteOn(60, velocity * 0.85f);
+        mAudioEngine.triggerKineticBurst("splatter", velocity);
     } else if (burstType.equalsIgnoreCase("cavity")) {
-        // Resonant Jordan standing wave pulse
-        mAudioEngine.noteOn(55, velocity);
+        mAudioEngine.triggerKineticBurst("cavity", velocity);
     } else {
-        mAudioEngine.noteOn(48, velocity);
+        mAudioEngine.triggerKineticBurst("impulse", velocity);
     }
 }
 

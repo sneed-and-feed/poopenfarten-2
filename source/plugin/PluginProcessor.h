@@ -70,7 +70,7 @@ public:
     pf02::engine::Pf02AudioEngine& getEngine() noexcept { return mAudioEngine; }
 
     // Direct performance triggers
-    void noteOn(int midiNote, float velocity) noexcept;
+    void noteOn(int midiNote, float velocity, float freqHz = 0.0f) noexcept;
     void noteOff(int midiNote, float velocity = 0.0f) noexcept;
     void pitchBend(float semitones) noexcept;
     void allNotesOff() noexcept;

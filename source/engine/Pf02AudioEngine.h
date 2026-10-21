@@ -63,10 +63,11 @@ public:
     void reset() noexcept;
 
     // MIDI Lifecycle
-    void noteOn(int midiNote, float velocity) noexcept;
+    void noteOn(int midiNote, float velocity, float freqHz = 0.0f) noexcept;
     void noteOff(int midiNote, float velocity = 0.0f) noexcept;
     void pitchBend(float semitones) noexcept;
     void allNotesOff() noexcept;
+    void triggerKineticBurst(std::string_view burstType, float velocity = 1.0f) noexcept;
 
     // Parameter distribution
     void setParameter(parameters::ParameterId id, float value) noexcept;

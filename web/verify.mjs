@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url';
 import { Pf02DspEngine } from './js/audio/pf02_dsp_engine.js';
 import { SpectralModalExtractor } from './js/audio/modal_extractor.js';
 import { Pf02AudioWorkletProcessor } from './js/audio/pf02_audio_worklet.js';
+import { FACTORY_PRESETS as FULL_FACTORY_PRESETS } from './js/ui/preset_manager.js';
+import { PfKeyboard } from './js/ui/keyboard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -744,5 +746,260 @@ describe('Poopenfarten II (PF-02) Verification Suite', () => {
       assert.ok(energy > 0.0001, 'AudioWorklet output must contain active audio signal');
     });
   });
+
+  //----------------------------------------------------------------------------
+  describe('11. Output Headroom, Microtonal Key Rollover, Glissando & Kinetic Burst Verification', () => {
+    it('verifies zero output clipping across all 16 factory presets', () => {
+      for (const preset of FULL_FACTORY_PRESETS) {
+        const engine = new Pf02DspEngine(48000.0);
+        for (const [k, v] of Object.entries(preset.params)) {
+          engine.setParameter(k, v);
+        }
+        engine.noteOn(36, 0.85, 65.41);
+        const { left, right } = engine.processBlock(4096);
+        let clipped = 0;
+        let maxAbs = 0.0;
+        for (let i = 0; i < left.length; i++) {
+          const a = Math.max(Math.abs(left[i]), Math.abs(right[i]));
+          if (a > maxAbs) maxAbs = a;
+          if (a >= 0.999) clipped++;
+        }
+        assert.strictEqual(clipped, 0, `Preset ${preset.id} clipped ${clipped} samples (max=${maxAbs})`);
+        assert.ok(maxAbs > 0.01, `Preset ${preset.id} produced near-silence (max=${maxAbs})`);
+      }
+    });
+
+    it('verifies microtonal/infrasonic/high-register freqHz routing, Mono-Legato re-articulation, and Unison rollback', () => {
+      const engine = new Pf02DspEngine(48000.0);
+
+      // 1. Mono-Legato with microtonal frequencies (including > 420 Hz up to 840 Hz)
+      engine.setParameter('param_voicing_mode', 0);
+      engine.noteOn(36, 0.85, 8.5);
+      assert.ok(Math.abs(engine.voiceManager.voices[0].targetFreqHz - 8.5) < 1e-3);
+
+      // Legato overlap to 840 Hz
+      engine.noteOn(51, 0.85, 840.0);
+      assert.ok(Math.abs(engine.voiceManager.voices[0].targetFreqHz - 840.0) < 1e-3);
+
+      // Release key 51 while holding key 36 -> rolls back to 8.5 Hz microtonal frequency!
+      engine.noteOff(51);
+      assert.strictEqual(engine.voiceManager.voices[0].gateState, 'NoteOn');
+      assert.ok(Math.abs(engine.voiceManager.voices[0].targetFreqHz - 8.5) < 1e-3);
+
+      // Release key 36 -> enters Release state
+      engine.noteOff(36);
+      assert.strictEqual(engine.voiceManager.voices[0].gateState, 'Release');
+      engine.processBlock(256);
+
+      // Re-trigger during Release tail -> must re-articulate back to NoteOn!
+      engine.noteOn(40, 0.9, 59.7);
+      assert.strictEqual(engine.voiceManager.voices[0].gateState, 'NoteOn');
+      assert.ok(Math.abs(engine.voiceManager.voices[0].targetFreqHz - 59.7) < 1e-3);
+      engine.allNotesOff();
+
+      // 2. Stereo Unison detuned glissando & note stack rollback
+      engine.setParameter('param_voicing_mode', 2);
+      engine.noteOn(36, 0.85, 110.0);
+      engine.noteOn(38, 0.85, 220.0);
+      // Releasing 38 while 36 is still held must keep all 4 unison voices in NoteOn and glide back to ~110 Hz
+      engine.noteOff(38);
+      for (let v = 0; v < 4; v++) {
+        assert.strictEqual(engine.voiceManager.voices[v].gateState, 'NoteOn');
+        assert.ok(Math.abs(engine.voiceManager.voices[v].targetFreqHz - 110.0) < 3.0);
+      }
+      engine.noteOff(36);
+      for (let v = 0; v < 4; v++) {
+        assert.strictEqual(engine.voiceManager.voices[v].gateState, 'Release');
+      }
+    });
+
+    it('verifies kinetic bursts self-release when no note is held and preserve sustain when a note is held', () => {
+      const engine = new Pf02DspEngine(48000.0);
+
+      // 1. Burst while idle -> enters Release immediately so it decays naturally
+      engine.triggerKineticBurst('impulse', 1.0);
+      assert.strictEqual(engine.voiceManager.voices[0].active, true);
+      assert.strictEqual(engine.voiceManager.voices[0].gateState, 'Release');
+
+      // 2. Burst while note is held -> stays in NoteOn
+      engine.noteOn(36, 0.85, 55.0);
+      assert.strictEqual(engine.voiceManager.voices[0].gateState, 'NoteOn');
+      engine.triggerKineticBurst('splatter', 1.0);
+      assert.strictEqual(engine.voiceManager.voices[0].gateState, 'NoteOn');
+    });
+
+    it('verifies PfKeyboard N-key computer rollover, mouse drag glissando, and stuck-note blur protection', () => {
+      const winListeners = {};
+      const docListeners = {};
+      const keyElements = [];
+
+      globalThis.window = {
+        addEventListener: (type, fn) => { (winListeners[type] ||= []).push(fn); },
+        removeEventListener: (type, fn) => {
+          if (winListeners[type]) winListeners[type] = winListeners[type].filter(f => f !== fn);
+        }
+      };
+      globalThis.document = {
+        hidden: false,
+        addEventListener: (type, fn) => { (docListeners[type] ||= []).push(fn); },
+        createElement: (tag) => {
+          const el = {
+            tagName: tag.toUpperCase(),
+            className: '',
+            innerHTML: '',
+            dataset: {},
+            children: [],
+            listeners: {},
+            classList: {
+              _set: new Set(),
+              add(c) { this._set.add(c); },
+              remove(c) { this._set.delete(c); },
+              toggle(c, b) { if (b) this._set.add(c); else this._set.delete(c); },
+              contains(c) { return this._set.has(c); }
+            },
+            addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
+            appendChild(child) {
+              this.children.push(child);
+              if (child.className && child.className.includes('pf02-key')) {
+                keyElements.push(child);
+              }
+            },
+            querySelector(sel) {
+              const child = globalThis.document.createElement('div');
+              child.id = sel.replace('#', '');
+              this.children.push(child);
+              return child;
+            },
+            contains(child) {
+              return this.children.includes(child);
+            },
+            closest(sel) {
+              if (sel === '.pf02-key' && this.className.includes('pf02-key')) return this;
+              return null;
+            },
+            getBoundingClientRect() {
+              const idx = Number(this.dataset.keyIndex ?? 0);
+              return { left: idx * 40, right: (idx + 1) * 40, top: 0, bottom: 100, height: 100 };
+            }
+          };
+          return el;
+        },
+        elementFromPoint: (x, _y) => {
+          const idx = Math.floor(x / 40);
+          return keyElements[idx] || null;
+        }
+      };
+
+      const container = globalThis.document.createElement('div');
+      const events = [];
+      const kb = new PfKeyboard(container, {
+        onNoteOn: (midi, freq, vel) => events.push({ type: 'on', midi, freq, vel }),
+        onNoteOff: (midi) => events.push({ type: 'off', midi })
+      });
+
+      assert.strictEqual(keyElements.length, 16, 'Must render 16 keyboard keys');
+
+      // 1. N-key computer keyboard rollover (KeyA = index 0 (65.406 Hz), KeyW = index 1 (69.296 Hz))
+      winListeners.keydown[0]({ code: 'KeyA', key: 'a', repeat: false, target: { tagName: 'BODY' }, preventDefault() {} });
+      winListeners.keydown[0]({ code: 'KeyW', key: 'w', repeat: false, target: { tagName: 'BODY' }, preventDefault() {} });
+      assert.strictEqual(events.length, 2);
+      assert.strictEqual(events[0].midi, 36);
+      assert.strictEqual(events[0].freq, 65.406);
+      assert.strictEqual(events[1].midi, 37);
+      assert.strictEqual(events[1].freq, 130.812);
+
+      // Release KeyA while KeyW stays held
+      winListeners.keyup[0]({ code: 'KeyA', key: 'a' });
+      assert.strictEqual(events.length, 3);
+      assert.strictEqual(events[2].type, 'off');
+      assert.strictEqual(events[2].midi, 36);
+      assert.strictEqual(kb.activeKeys.has(1), true, 'Key 1 must remain active during rollover');
+
+      // Release KeyW
+      winListeners.keyup[0]({ code: 'KeyW', key: 'w' });
+      assert.strictEqual(kb.activeKeys.size, 0);
+
+      // 2. Mouse drag glissando across keys 3 -> 4 -> 5
+      events.length = 0;
+      keyElements[3].listeners.mousedown[0]({ button: 0, clientX: 130, clientY: 50, preventDefault() {} });
+      assert.strictEqual(events.length, 1);
+      assert.strictEqual(events[0].type, 'on');
+      assert.strictEqual(events[0].midi, 39);
+
+      // Drag into key 4 (x = 170): must fire noteOn(40) BEFORE noteOff(39) for true legato glissando!
+      winListeners.mousemove[0]({ buttons: 1, clientX: 170, clientY: 50 });
+      assert.strictEqual(events.length, 3);
+      assert.strictEqual(events[1].type, 'on');
+      assert.strictEqual(events[1].midi, 40);
+      assert.strictEqual(events[2].type, 'off');
+      assert.strictEqual(events[2].midi, 39);
+
+      // Release mouse button
+      winListeners.mouseup[0]({});
+      assert.strictEqual(events.length, 4);
+      assert.strictEqual(events[3].type, 'off');
+      assert.strictEqual(events[3].midi, 40);
+
+      // 3. Window blur releases any held keys
+      winListeners.keydown[0]({ code: 'KeyP', key: 'p', repeat: false, target: { tagName: 'SELECT' }, preventDefault() {} });
+      assert.strictEqual(kb.activeKeys.has(15), true, 'KeyP must work even when a SELECT has focus');
+      winListeners.blur[0]();
+      assert.strictEqual(kb.activeKeys.size, 0, 'Window blur must release all held keys');
+
+      // 4. Multi-touch touchcancel releases all simultaneously held touches
+      keyElements[2].listeners.touchstart[0]({
+        touches: [
+          { identifier: 1, clientX: 90, clientY: 50, target: keyElements[2] },
+          { identifier: 2, clientX: 210, clientY: 50, target: keyElements[5] }
+        ],
+        preventDefault() {}
+      });
+      assert.strictEqual(kb.activeKeys.has(2), true);
+      assert.strictEqual(kb.activeKeys.has(5), true);
+      keyElements[2].listeners.touchcancel[0]({ preventDefault() {} });
+      assert.strictEqual(kb.activeKeys.size, 0, 'touchcancel must release all multi-touch active keys');
+
+      // 5. Mouse button released outside window (buttons === 0 on mousemove) releases dragged key
+      keyElements[7].listeners.mousedown[0]({ button: 0, clientX: 290, clientY: 50, preventDefault() {} });
+      assert.strictEqual(kb.activeKeys.has(7), true);
+      winListeners.mousemove[0]({ buttons: 0, clientX: 330, clientY: 50 });
+      assert.strictEqual(kb.activeKeys.size, 0, 'mousemove with buttons=0 must release dragged key');
+    });
+
+    it('verifies MucosalExciter pitch accuracy across tensions and voicing mode transition cleanup', async () => {
+      const { MucosalExciter } = await import('./js/audio/pf02_dsp_engine.js');
+      for (const f of [65.41, 130.81, 261.63, 440.0]) {
+        for (const t of [0.1, 0.5, 0.9]) {
+          const exc = new MucosalExciter();
+          exc.prepare(48000.0);
+          exc.triggerSlap(0.8);
+          let zc = 0, prev = 0;
+          for (let i = 0; i < 48000; i++) {
+            exc.processSample({ frequencyHz: f, mucosalTension: t, subglottalPressure: 0.55 });
+            if (i > 4800) {
+              const d = exc.displacement;
+              if (prev <= 0 && d > 0) zc++;
+              prev = d;
+            }
+          }
+          const meas = zc / 0.9;
+          const ratio = meas / f;
+          assert.ok(ratio > 0.96 && ratio < 1.04, `Exciter pitch ratio ${ratio.toFixed(4)} out of bounds for f=${f}, tension=${t}`);
+        }
+      }
+
+      // Voicing mode transition must release held notes
+      const engine = new Pf02DspEngine(48000.0);
+      engine.setParameter('param_voicing_mode', 1); // Poly 8
+      engine.noteOn(36, 0.85, 65.41);
+      engine.noteOn(40, 0.85, 82.41);
+      engine.setParameter('param_voicing_mode', 0); // Switch to Mono-Legato while keys held
+      for (const v of engine.voiceManager.voices) {
+        assert.notStrictEqual(v.gateState, 'NoteOn', 'Switching voicing mode must release held notes');
+      }
+    });
+  });
 });
+
+
 

@@ -50,8 +50,8 @@ void Pf02AudioEngine::reset() noexcept {
     mWaveformWindowR.fill(0.0f);
 }
 
-void Pf02AudioEngine::noteOn(int midiNote, float velocity) noexcept {
-    mVoiceManager.noteOn(midiNote, velocity);
+void Pf02AudioEngine::noteOn(int midiNote, float velocity, float freqHz) noexcept {
+    mVoiceManager.noteOn(midiNote, velocity, freqHz);
 }
 
 void Pf02AudioEngine::noteOff(int midiNote, float velocity) noexcept {
@@ -64,6 +64,10 @@ void Pf02AudioEngine::pitchBend(float semitones) noexcept {
 
 void Pf02AudioEngine::allNotesOff() noexcept {
     mVoiceManager.allNotesOff();
+}
+
+void Pf02AudioEngine::triggerKineticBurst(std::string_view burstType, float velocity) noexcept {
+    mVoiceManager.triggerKineticBurst(burstType, velocity);
 }
 
 void Pf02AudioEngine::applyMacroMappings() noexcept {

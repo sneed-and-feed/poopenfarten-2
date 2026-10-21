@@ -307,6 +307,75 @@ void testPf02AudioEngine() {
 }
 
 // ============================================================================
+// Test 6: All 16 Presets Headroom/RMS Balance & MucosalExciter Pitch Accuracy
+// ============================================================================
+static void testPresetHeadroomAndPitchAccuracy() {
+    std::cout << "[M2-TEST 6] Verifying 16 Factory Presets Headroom/RMS & Exciter Pitch Accuracy...\n";
+
+    // 1. MucosalExciter pitch accuracy across tensions [0.1, 0.5, 0.9] and octaves
+    for (float f : { 65.41f, 130.81f, 261.63f, 440.0f }) {
+        for (float t : { 0.1f, 0.5f, 0.9f }) {
+            dsp::MucosalExciter exc;
+            exc.prepare(48000.0);
+            exc.triggerSlap(0.8f);
+
+            dsp::MucosalExciterParams p;
+            p.frequencyHz = f;
+            p.mucosalTension = t;
+            p.colonicPressure = 0.55f;
+
+            int zc = 0;
+            float prev = 0.0f;
+            for (int i = 0; i < 48000; ++i) {
+                float airV = 0.0f, ap = 0.0f;
+                (void)exc.processSample(p, airV, ap);
+                if (i > 4800) {
+                    const float d = ap;
+                    if (prev <= 0.0f && d > 0.0f) ++zc;
+                    prev = d;
+                }
+            }
+            const float meas = static_cast<float>(zc) / 0.9f;
+            const float ratio = meas / f;
+            M2_ASSERT(ratio > 0.95f && ratio < 1.05f, "C++ MucosalExciter limit-cycle frequency must track within +/-5% across all tensions");
+        }
+    }
+
+    // 2. Render all 16 factory presets and verify zero clipping and healthy RMS
+    const auto& presets = PresetManager::getFactoryPresets();
+    std::vector<float> bufL(4096, 0.0f);
+    std::vector<float> bufR(4096, 0.0f);
+    float* chans[2] = { bufL.data(), bufR.data() };
+
+    for (const auto& preset : presets) {
+        Pf02AudioEngine eng;
+        eng.prepare(48000.0, 512);
+        for (size_t i = 0; i < kNumParameters; ++i) {
+            eng.setParameter(static_cast<ParameterId>(i), preset.params[i]);
+        }
+        eng.noteOn(36, 0.85f, 65.41f);
+
+        float maxAbs = 0.0f;
+        double sumSq = 0.0;
+        int clipped = 0;
+        for (int blk = 0; blk < 3; ++blk) {
+            eng.processBlock(chans, 2, 4096);
+            for (size_t s = 0; s < 4096; ++s) {
+                const float a = std::max(std::abs(bufL[s]), std::abs(bufR[s]));
+                if (a > maxAbs) maxAbs = a;
+                if (a >= 0.999f) ++clipped;
+                sumSq += 0.5 * (static_cast<double>(bufL[s]) * bufL[s] + static_cast<double>(bufR[s]) * bufR[s]);
+            }
+        }
+        const float rms = static_cast<float>(std::sqrt(sumSq / (3.0 * 4096.0)));
+        M2_ASSERT(clipped == 0 && maxAbs < 0.95f, "Factory preset must not clip");
+        M2_ASSERT(rms > 0.012f, "Factory preset must produce healthy audible RMS level");
+    }
+
+    std::cout << "  -> All 16 factory presets headroom/RMS and MucosalExciter pitch accuracy verified (PASSED)\n";
+}
+
+// ============================================================================
 // Main Execution Entry Point
 // ============================================================================
 int main() {
@@ -322,12 +391,13 @@ int main() {
     testPhysicalVoice();
     testVoiceManager();
     testPf02AudioEngine();
+    testPresetHeadroomAndPitchAccuracy();
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double totalMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
     std::cout << "\n================================================================================\n";
-    std::cout << "   ALL 5 MILESTONE M2 TEST SUITES PASSED WITH 100% EMPIRICAL SUCCESS            \n";
+    std::cout << "   ALL 6 MILESTONE M2 TEST SUITES PASSED WITH 100% EMPIRICAL SUCCESS            \n";
     std::cout << "   Total Execution Time: " << std::fixed << std::setprecision(2) << totalMs << " ms\n";
     std::cout << "   VERDICT: APPROVE (MILESTONE M2 COMPLETE)                                     \n";
     std::cout << "================================================================================\n";

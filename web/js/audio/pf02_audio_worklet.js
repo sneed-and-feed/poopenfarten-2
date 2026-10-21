@@ -43,7 +43,7 @@ export class Pf02AudioWorkletProcessor extends BaseAudioWorkletProcessor {
           break;
 
         case 'noteOn':
-          this.engine.noteOn(data.note, data.velocity);
+          this.engine.noteOn(data.note, data.velocity, data.freqHz);
           break;
 
         case 'noteOff':
@@ -77,21 +77,7 @@ export class Pf02AudioWorkletProcessor extends BaseAudioWorkletProcessor {
   }
 
   _handleKineticBurst(burstType, velocity = 1.0) {
-    // Triggers direct physical transient impulse on active voice
-    const v = this.engine.voiceManager.voices[0];
-    if (burstType === 'IMPULS-SCHLAG') {
-      v.mucosalExciter.triggerSlap(velocity, 2.8);
-      v.noteOn(33, velocity);
-    } else if (burstType === 'KARNOPP-ABRISS') {
-      v.mucosalExciter.triggerSealBurst(velocity * 2.0);
-      v.noteOn(33, velocity);
-    } else if (burstType === 'MINNAERT-PLOPP') {
-      v.aeroFluidEngine.triggerFlapBurst(velocity, 0.9, 30.0);
-      v.noteOn(33, velocity);
-    } else if (burstType === 'JORDAN-RESONANZ') {
-      v.modalMatrix.jordanField.generateCavityField(1.5, 0.8, 3);
-      v.noteOn(33, velocity);
-    }
+    this.engine.triggerKineticBurst(burstType, velocity);
   }
 
   process(inputs, outputs, parameters) {

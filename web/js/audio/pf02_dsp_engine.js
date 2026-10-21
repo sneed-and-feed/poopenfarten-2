@@ -251,17 +251,27 @@ export class MucosalExciter {
     this.airVelocity = 0.0;
     this.upstreamPressure = 0.0;
     this.prevVolumeFlow = 0.0;
+    this.meanAperture = 0.0;
     this.stuck = true;
+    this.wasInContact = false;
     this.burstThresholdPa = 250.0;
     this.justOpened = false;
     this.openingTransientAmp = 0.0;
     this.impactSlapAmp = 0.0;
+    this.pendingOpeningAmp = 0.0;
+    this.pendingSlapAmp = 0.0;
     this.vactrolConductance = 0.0;
+    this.baseSeed = 0x504F4F50454E32n;
+  }
+
+  setSeed(seed) {
+    this.baseSeed = BigInt(seed);
+    this.prng.setSeed(this.baseSeed);
   }
 
   prepare(sampleRate) {
     this.sampleRate = sampleRate > 100.0 ? sampleRate : 48000.0;
-    this.prng.setSeed(0x504F4F50454E32n);
+    this.prng.setSeed(this.baseSeed);
     this.dcBlocker.setCutoff(this.sampleRate, 14.0);
     this.reset();
   }
@@ -273,11 +283,15 @@ export class MucosalExciter {
     this.airVelocity = 0.0;
     this.upstreamPressure = 0.0;
     this.prevVolumeFlow = 0.0;
+    this.meanAperture = 0.0;
     this.stuck = true;
+    this.wasInContact = false;
     this.burstThresholdPa = 250.0;
     this.justOpened = false;
     this.openingTransientAmp = 0.0;
     this.impactSlapAmp = 0.0;
+    this.pendingOpeningAmp = 0.0;
+    this.pendingSlapAmp = 0.0;
     this.vactrolConductance = 0.0;
     this.dcBlocker.reset();
   }
@@ -285,23 +299,24 @@ export class MucosalExciter {
   triggerSealBurst(burstIntensity) {
     this.stuck = false;
     this.justOpened = true;
-    const burstVel = clamp(burstIntensity, 0.1, 10.0) * 2.5;
-    this.velocity = burstVel;
-    this.openingTransientAmp = burstVel;
-    this.displacement = Math.max(this.displacement, 0.0003);
+    const burstAmp = clamp(burstIntensity, 0.1, 10.0) * 1.45;
+    this.openingTransientAmp = burstAmp;
+    this.pendingOpeningAmp = Math.max(this.pendingOpeningAmp, burstAmp);
   }
 
   triggerSlap(vel, hardness = 2.1) {
-    const slapVel = -Math.abs(vel) * 2.0;
-    this.velocity = slapVel;
     const normHardness = clamp(hardness, 1.2, 3.0);
-    this.impactSlapAmp = Math.abs(vel) * Math.pow(normHardness, 1.5);
+    const slapAmp = clamp(Math.abs(vel), 0.05, 4.0) * 0.35 * Math.pow(normHardness / 2.1, 1.2);
+    this.impactSlapAmp = slapAmp;
+    this.pendingSlapAmp = Math.max(this.pendingSlapAmp, slapAmp);
   }
 
   processSample(params) {
-    this.justOpened = false;
-    this.openingTransientAmp = 0.0;
-    this.impactSlapAmp = 0.0;
+    this.justOpened = this.pendingOpeningAmp > 0.0;
+    this.openingTransientAmp = this.pendingOpeningAmp;
+    this.impactSlapAmp = this.pendingSlapAmp;
+    this.pendingOpeningAmp = 0.0;
+    this.pendingSlapAmp = 0.0;
 
     const dt = 1.0 / this.sampleRate;
 
@@ -323,52 +338,67 @@ export class MucosalExciter {
 
     const pDrive = Math.pow(this.vactrolConductance, 1.8) * 2200.0; // Up to 2200 Pa
 
-    if (pDrive < 1.0e-3) {
+    if (pDrive < 1.0e-3 && this.openingTransientAmp <= 0.0 && this.impactSlapAmp <= 0.0) {
       this.displacement = 0.0;
+      this.meanAperture *= 0.995;
       this.velocity = 0.0;
       this.acceleration = 0.0;
       this.airVelocity = 0.0;
       this.upstreamPressure = 0.0;
       this.prevVolumeFlow = 0.0;
       this.stuck = true;
+      this.wasInContact = false;
       return this.dcBlocker.process(0.0);
     }
 
-    // 2. Fundamental Frequency & Viscoelastic Mechanics
-    const fClamped = clamp(params.frequencyHz ?? 55.0, 7.0, 420.0);
-    const tensionScale = 0.75 + 0.50 * clamp(params.mucosalTension ?? 0.50, 0.0, 1.0);
-    const fEff = clamp(fClamped * tensionScale, 7.0, 600.0);
+    // 2. Fundamental Frequency & Scale-Invariant Viscoelastic Mechanics
+    const fEff = clamp(params.frequencyHz ?? 55.0, 7.0, 2000.0);
+    const tension = clamp(params.mucosalTension ?? 0.50, 0.0, 1.0);
     const omega0 = kTwoPi * fEff;
 
     const mEff = 0.0012; // 1.2 g effective tissue mass
-    const kSpring = mEff * omega0 * omega0;
-    const rDamping = 2.0 * 0.075 * omega0 * mEff;
+    // Calibrate linear spring stiffness so nonlinear impact + stiffening limit cycle matches fEff across all tensions
+    const kSpring = (0.342 - 0.045 * tension) * mEff * omega0 * omega0;
+    const rDamping = 2.0 * (0.08 - 0.025 * tension) * Math.sqrt(kSpring * mEff);
     const y0 = clamp((params.restingApertureMm ?? 1.0) * 0.001, 0.0001, 0.005);
+    const fScale = kSpring * y0;
+    const vScale = Math.max(1.0e-5, Math.sqrt(kSpring / mEff) * y0);
 
-    // 3. Upstream Pressure Accumulation
-    const fillRate = 3.5 * omega0;
-    const currentArea = (this.stuck || this.displacement <= 0.0) ? 0.0 : (kSlitWidthW * this.displacement);
-    const currentVolumeFlow = currentArea * this.airVelocity;
-    const dPup = fillRate * (pDrive - this.upstreamPressure) - (currentVolumeFlow * omega0 * 10.0);
-    this.upstreamPressure = clamp(this.upstreamPressure + dt * dPup, 0.0, 4500.0);
+    // Apply scale-invariant pending kinetic impulses relative to vScale and y0
+    if (this.openingTransientAmp > 0.0) {
+      this.velocity = Math.max(this.velocity, Math.min(2.2, this.openingTransientAmp) * vScale);
+      this.displacement = Math.max(this.displacement, 0.12 * y0);
+      this.meanAperture = Math.max(this.meanAperture, this.displacement);
+    } else if (this.impactSlapAmp > 0.0) {
+      this.velocity = Math.min(this.velocity, -Math.min(1.6, this.impactSlapAmp * 1.8) * vScale);
+    }
+
+    // 3. Upstream Reservoir Pressure Accumulation & Subglottal/Colonic Compliance Venting
+    const omegaP = Math.min(omega0, 0.12 * this.sampleRate);
+    const fillRate = 3.5 * omegaP;
+    const openRatio = (this.stuck || this.displacement <= 0.0) ? 0.0 : clamp(this.displacement / y0, 0.0, 6.0);
+    const ventCoeff = 5.5 * openRatio * openRatio * omegaP;
+    const alphaTot = Math.min(fillRate + ventCoeff, 0.45 * this.sampleRate);
+    const pTarget = (fillRate + ventCoeff > 1.0e-6) ? (fillRate * pDrive) / (fillRate + ventCoeff) : 0.0;
+    this.upstreamPressure = clamp(this.upstreamPressure + alphaTot * dt * (pTarget - this.upstreamPressure), 0.0, 4500.0);
     this.upstreamPressure = flushDenormal(this.upstreamPressure);
 
-    // 4. Karnopp Stick-Slip Friction & Stribeck Dynamics
-    const kKarnoppDeadband = 0.0015; // vd = 0.0015 m/s
+    // 4. Karnopp Stick-Slip Friction & Stribeck Breakaway Dynamics
+    const kKarnoppDeadband = 0.02 * vScale;
     const stictionLevel = clamp(params.karnoppStiction ?? 0.65, 0.0, 1.0);
-    const normalForce = (this.upstreamPressure * 0.00025) + (stictionLevel * 0.35);
-    const fs = 0.85 * normalForce;
-    const fc = 0.35 * normalForce;
-    const vStribeck = Math.max(0.05, params.stribeckBreakaway ?? 2.2);
+    const pNorm = clamp(this.upstreamPressure / 1500.0, 0.0, 2.5);
+    const driveNorm = clamp(pDrive / 1500.0, 0.0, 2.5);
+    const vStribeckRatio = clamp((params.stribeckBreakaway ?? 2.2) / 2.2, 0.2, 4.0);
 
     if (this.stuck) {
-      if (this.upstreamPressure >= this.burstThresholdPa || (pDrive > 50.0 && this.upstreamPressure >= 0.85 * pDrive)) {
+      if (this.upstreamPressure >= this.burstThresholdPa || (pDrive > 50.0 && this.upstreamPressure >= 0.75 * pDrive)) {
         this.stuck = false;
         this.justOpened = true;
         const surge = Math.sqrt(Math.max(0.0, 2.0 * this.upstreamPressure / mEff)) * 0.038 + 1.6;
-        this.velocity = surge;
-        this.openingTransientAmp = surge;
-        this.displacement = 0.00020;
+        this.velocity = 1.15 * vScale * (0.6 + 0.6 * driveNorm);
+        this.openingTransientAmp = Math.max(this.openingTransientAmp, surge);
+        this.displacement = 0.08 * y0;
+        this.meanAperture = Math.max(this.meanAperture, this.displacement);
         this.burstThresholdPa = (150.0 + 600.0 * stictionLevel) * (0.85 + 0.30 * this.prng.nextFloat());
       } else {
         this.displacement = 0.0;
@@ -379,72 +409,92 @@ export class MucosalExciter {
       }
     }
 
-    // 5. Airflow Velocity via Bernoulli Equation
+    // 5. Airflow Velocity via Bernoulli Equation with Slit Vena Contracta
     if (!this.stuck && this.displacement > 1.0e-6 && this.upstreamPressure > 0.0) {
-      this.airVelocity = Math.sqrt(2.0 * this.upstreamPressure / kAirDensityRho);
+      this.airVelocity = Math.sqrt(2.0 * this.upstreamPressure / kAirDensityRho) * (openRatio / (0.20 + openRatio));
     } else {
       this.airVelocity = 0.0;
     }
     this.airVelocity = flushDenormal(this.airVelocity);
 
-    // 6. Force Balance on Mucosal Tissue
-    const dispOffset = this.displacement - y0;
-    const fSpring = -kSpring * dispOffset;
+    // 6. Scale-Invariant Force Balance on Mucosal Tissue (Titze Mucosal Wave + Bernoulli Suction)
+    const eqY = (0.48 - 0.10 * tension) * y0 * Math.min(1.3, driveNorm + 0.2);
+    const dispOffset = this.displacement - eqY;
+    const normDisp = dispOffset / y0;
+    const nonlinStiff = 1.0 + (0.85 + 0.50 * tension) * normDisp * normDisp;
+    const fSpring = -kSpring * dispOffset * nonlinStiff;
     const fDamp   = -rDamping * this.velocity;
-    const fPressure = this.upstreamPressure * 0.00022;
-    const fBernoulli = (this.displacement > 1.0e-6) ?
-      (-0.5 * kAirDensityRho * this.airVelocity * this.airVelocity * (kSlitWidthW * 0.004)) : 0.0;
 
+    const velNorm = clamp(this.velocity / (vScale + 1.0e-6), -3.0, 3.0);
+    const pressureMod = (this.upstreamPressure - 0.52 * pDrive) / Math.max(100.0, pDrive);
+    const fPressure = fScale * (
+      0.65 * pressureMod +
+      (0.32 + 0.15 * stictionLevel) * Math.tanh(velNorm * 1.5) * (1.0 - 0.35 * normDisp * normDisp)
+    );
+    const fBernoulli = (this.displacement > 1.0e-6) ?
+      (-fScale * (0.24 + 0.10 * tension) * pNorm * (openRatio / (0.25 + openRatio * openRatio))) : 0.0;
+
+    // Contact-zone Karnopp/Stribeck shear resistance (active in mucosal boundary layer y < 0.20 * y0)
+    const contactZone = clamp(1.0 - this.displacement / (0.20 * y0), 0.0, 1.0);
     let fFriction = 0.0;
-    if (Math.abs(this.velocity) < kKarnoppDeadband) {
-      fFriction = clamp(this.velocity * 400.0, -fs, fs);
-    } else {
-      const sgn = (this.velocity > 0.0) ? 1.0 : -1.0;
-      const decay = Math.exp(-(this.velocity * this.velocity) / (vStribeck * vStribeck));
-      fFriction = sgn * (fc + (fs - fc) * decay) + 0.12 * normalForce * this.velocity;
+    if (contactZone > 0.0) {
+      const fStickMax = fScale * 0.18 * stictionLevel;
+      if (Math.abs(this.velocity) < kKarnoppDeadband) {
+        fFriction = contactZone * clamp((this.velocity / (kKarnoppDeadband + 1.0e-9)) * fStickMax, -fStickMax, fStickMax);
+      } else {
+        const sgn = (this.velocity > 0.0) ? 1.0 : -1.0;
+        const decay = Math.exp(-(velNorm * velNorm) / (vStribeckRatio * vStribeckRatio));
+        fFriction = contactZone * sgn * fStickMax * (0.35 + 0.65 * decay);
+      }
     }
 
     // 7. Hunt-Crossley Nonlinear Hertzian Impact Contact Mechanics (y <= 0)
     let fImpact = 0.0;
     if (this.displacement <= 0.0) {
-      const penetrationX = -this.displacement;
-      const xDot = -this.velocity;
-      const hardnessNorm = clamp(((params.tissueHardness ?? 2.1) - 1.2) / 1.8, 0.0, 1.0);
-      const kc = 1.0e6 * Math.pow(10.0, 2.8 * hardnessNorm);
-      const lambdaC = 40.0 * (1.0 - 0.4 * clamp(params.impactRestitution ?? 0.45, 0.0, 1.0));
+      const penNorm = clamp(-this.displacement / y0, 0.0, 2.0);
+      const vPenNorm = clamp(-this.velocity / (vScale + 1.0e-6), -4.0, 4.0);
       const alpha = clamp(params.tissueHardness ?? 2.1, 1.2, 3.0);
+      const restitution = clamp(params.impactRestitution ?? 0.45, 0.0, 1.0);
+      const xPow = Math.pow(Math.max(1.0e-6, penNorm), alpha);
+      fImpact = fScale * Math.max(0.0, 14.0 * xPow * (1.0 + 0.45 * (1.0 - restitution) * vPenNorm));
 
-      const xPow = Math.pow(Math.max(1.0e-8, penetrationX), alpha);
-      const contactForce = Math.max(0.0, kc * xPow + lambdaC * xPow * xDot);
-      fImpact = contactForce;
-
-      if (this.velocity < -0.1) {
-        this.impactSlapAmp = contactForce * 0.002;
+      if (!this.wasInContact && this.velocity < -0.15 * vScale) {
+        this.impactSlapAmp = Math.max(this.impactSlapAmp, clamp(-this.velocity / (vScale + 1.0e-6), 0.0, 1.5) * 0.35);
       }
-
-      if (Math.abs(this.velocity) < kKarnoppDeadband * 2.0 && stictionLevel > 0.15) {
-        this.stuck = true;
-        this.displacement = 0.0;
-        this.velocity = 0.0;
-      }
+      this.wasInContact = true;
+    } else {
+      this.wasInContact = false;
     }
 
-    // 8. Symplectic Verlet Integration
+    // 8. Symplectic Verlet Integration (with high-frequency stability clamp)
     const totalForce = fSpring + fDamp + fPressure + fBernoulli + fImpact - fFriction;
-    const aNext = totalForce / mEff;
+    const maxAccel = 20.0 * omega0 * vScale;
+    const aNext = clamp(totalForce / mEff, -maxAccel, maxAccel);
 
     const xNext = this.displacement + this.velocity * dt + 0.5 * this.acceleration * dt * dt;
-    this.velocity += 0.5 * (this.acceleration + aNext) * dt;
-    this.displacement = flushDenormal(clamp(xNext, -0.001, 0.015));
-    this.acceleration = aNext;
+    this.velocity = flushDenormal(clamp(this.velocity + 0.5 * (this.acceleration + aNext) * dt, -4.0 * vScale, 4.0 * vScale));
+    this.displacement = flushDenormal(clamp(xNext, -0.45 * y0, 3.2 * y0));
+    this.acceleration = flushDenormal(aNext);
 
-    // 9. Acoustic Output Signal
-    const newArea = (this.displacement > 0.0) ? (kSlitWidthW * this.displacement) : 0.0;
+    const posDisp = Math.max(0.0, this.displacement);
+    this.meanAperture = flushDenormal(0.992 * this.meanAperture + 0.008 * posDisp);
+
+    // 9. Acoustic Output Signal (Glottal-Colonic Flow Derivative + Pulse + Slap/Breakaway Transients)
+    const newArea = posDisp * kSlitWidthW;
     const newVolumeFlow = newArea * this.airVelocity;
-    const dFlowDt = (newVolumeFlow - this.prevVolumeFlow) * this.sampleRate;
+    const refFlow = kSlitWidthW * y0 * 35.0 + 1.0e-9;
+    const dFlowNorm = clamp(
+      ((newVolumeFlow - this.prevVolumeFlow) / refFlow) * (this.sampleRate / (0.55 * omega0 + 40.0)),
+      -2.2, 2.2
+    );
     this.prevVolumeFlow = newVolumeFlow;
 
-    const acousticWave = dFlowDt * 0.08 + this.impactSlapAmp * 0.5 + this.openingTransientAmp * 0.35;
+    const glottalPulse = clamp((posDisp / y0) * (this.airVelocity / 42.0) - 0.30, -0.9, 1.4) * (0.24 + 0.06 * tension);
+    const rawWave = dFlowNorm * (0.28 + 0.08 * tension) +
+                    glottalPulse +
+                    this.impactSlapAmp * 0.25 +
+                    Math.min(1.5, this.openingTransientAmp) * 0.10;
+    const acousticWave = Math.tanh(rawWave * 0.90) * 0.72;
     return this.dcBlocker.process(acousticWave);
   }
 }
@@ -455,7 +505,8 @@ export class MucosalExciter {
 export class AeroFluidEngine {
   constructor() {
     this.sampleRate = 48000.0;
-    this.prng = new FastPRNG(0x4145524F464C55n);
+    this.baseSeed = 0x4145524F464C55n;
+    this.prng = new FastPRNG(this.baseSeed);
     this.viscosityFilter = new OnePoleLowpass();
     this.gurgleFilter = new OnePoleLowpass();
 
@@ -517,9 +568,14 @@ export class AeroFluidEngine {
     this.euclideanStepTriggered = false;
   }
 
+  setSeed(seed) {
+    this.baseSeed = BigInt(seed);
+    this.prng.setSeed(this.baseSeed);
+  }
+
   prepare(sampleRate) {
     this.sampleRate = sampleRate > 100.0 ? sampleRate : 48000.0;
-    this.prng.setSeed(0x4145524F464C55n);
+    this.prng.setSeed(this.baseSeed);
     this.viscosityFilter.reset();
     this.gurgleFilter.reset();
     this.gurgleFilter.setCutoff(this.sampleRate, 850.0);
@@ -657,16 +713,18 @@ export class AeroFluidEngine {
       const pink = (this.pinkB0 + this.pinkB1 + this.pinkB2 + white * 0.5362) * 0.11;
 
       const turbLevel = clamp(params.reynoldsTurbulence ?? 0.40, 0.0, 1.0);
-      const turbGain = turbLevel * Math.pow(posAirVel / 25.0, 1.6) * (1.0 + 0.6 * zenoFlux);
-      const shearNoise = pink * turbGain * 0.35;
+      const velFactor = clamp(posAirVel / 38.0, 0.0, 1.6);
+      const apertureMod = clamp(posAperture / 0.0012, 0.15, 1.5);
+      const turbGain = turbLevel * Math.pow(velFactor, 1.4) * apertureMod * (1.0 + 0.4 * clamp(zenoFlux, 0.0, 1.0));
+      const shearNoise = pink * turbGain * 0.28;
 
       const lambda = clamp(params.beltramiVortexPitch ?? 2.8, 0.1, 10.0);
-      const vortexFreq = clamp(lambda * posAirVel * 25.0, 80.0, this.sampleRate * 0.45);
+      const vortexFreq = clamp(lambda * (18.0 + posAirVel * 6.5), 60.0, Math.min(2400.0, this.sampleRate * 0.45));
       this.vortexPhase += vortexFreq * (kTwoPi / this.sampleRate);
       if (this.vortexPhase >= kTwoPi) this.vortexPhase -= kTwoPi;
 
       const whistle = FastSinTable.sin(this.vortexPhase);
-      this.vortexWhistleLevel = whistle * turbGain * 0.18;
+      this.vortexWhistleLevel = whistle * turbGain * 0.045;
       jetSignal = shearNoise + this.vortexWhistleLevel;
     } else {
       this.vortexWhistleLevel = 0.0;
@@ -724,7 +782,7 @@ export class AeroFluidEngine {
     const smoothedBubbles = this.gurgleFilter.process(bubbleSum);
 
     const rawAeroFluid = jetSignal * (1.0 - 0.4 * moisture) +
-      (dropletSignal * 0.75 + smoothedBubbles * 0.55) * moisture;
+      (dropletSignal * 0.65 + smoothedBubbles * 0.45) * moisture;
 
     const visc = clamp(params.fluidViscosity ?? 0.30, 0.0, 1.0);
     const viscCutoff = 8000.0 * Math.pow(0.075, visc);
@@ -744,6 +802,9 @@ export class SkewSymmetricTriadOperator {
     this.weights = Array.from({ length: Cu }, () =>
       Array.from({ length: M }, () => new Float32Array(M))
     );
+    this.skewWeights = new Float32Array(Cu * M * M);
+    this.lieMatrixFlat = new Float32Array(M * M);
+    this.evalOut = new Float32Array(M);
     this.initDefaultWeights();
   }
 
@@ -761,13 +822,27 @@ export class SkewSymmetricTriadOperator {
         }
       }
     }
+    this._rebuildSkewCache();
+  }
+
+  _rebuildSkewCache() {
+    const M = this.M;
+    for (let j = 0; j < M; ++j) {
+      for (let k = 0; k < M; ++k) {
+        const baseIdx = (j * M + k) * this.Cu;
+        for (let i = 0; i < this.Cu; ++i) {
+          this.skewWeights[baseIdx + i] = this.weights[i][j][k] - this.weights[i][k][j];
+        }
+      }
+    }
   }
 
   contractToLieMatrix(u) {
-    const A = Array.from({ length: this.M }, () => new Float32Array(this.M));
-    for (let j = 0; j < this.M; ++j) {
+    const M = this.M;
+    const A = Array.from({ length: M }, () => new Float32Array(M));
+    for (let j = 0; j < M; ++j) {
       A[j][j] = 0.0;
-      for (let k = j + 1; k < this.M; ++k) {
+      for (let k = j + 1; k < M; ++k) {
         let val = 0.0;
         for (let i = 0; i < this.Cu; ++i) {
           val += u[i] * (this.weights[i][j][k] - this.weights[i][k][j]);
@@ -779,28 +854,48 @@ export class SkewSymmetricTriadOperator {
     return A;
   }
 
-  evaluate(u, v) {
-    const A = this.contractToLieMatrix(u);
-    const out = new Float32Array(this.M);
-
-    for (let k = 0; k < this.M; ++k) {
-      let sum = 0.0;
-      for (let j = 0; j < this.M; ++j) {
-        sum += v[j] * A[j][k];
+  contractFlat(u, outFlat = null) {
+    const M = this.M;
+    const Cu = this.Cu;
+    const A = outFlat || this.lieMatrixFlat;
+    const skew = this.skewWeights;
+    for (let j = 0; j < M; ++j) {
+      A[j * M + j] = 0.0;
+      for (let k = j + 1; k < M; ++k) {
+        const baseIdx = (j * M + k) * Cu;
+        let val = 0.0;
+        for (let i = 0; i < Cu; ++i) {
+          val += u[i] * skew[baseIdx + i];
+        }
+        A[j * M + k] = val;
+        A[k * M + j] = -val;
       }
-      out[k] = sum;
+    }
+    return A;
+  }
+
+  evaluateWithMatrix(A, scale, v, outBuf = null) {
+    const M = this.M;
+    const out = outBuf || new Float32Array(M);
+
+    for (let k = 0; k < M; ++k) {
+      let sum = 0.0;
+      for (let j = 0; j < M; ++j) {
+        sum += v[j] * A[j * M + k];
+      }
+      out[k] = sum * scale;
     }
 
     // Two-pass Kahan/Parlett tangent projection: eliminates float roundoff <v, out> = 0
     let vNormSq = 0.0;
-    for (let k = 0; k < this.M; ++k) vNormSq += v[k] * v[k];
+    for (let k = 0; k < M; ++k) vNormSq += v[k] * v[k];
 
     if (vNormSq > 1.0e-30) {
       for (let pass = 0; pass < 2; ++pass) {
         let inner = 0.0;
-        for (let k = 0; k < this.M; ++k) inner += v[k] * out[k];
+        for (let k = 0; k < M; ++k) inner += v[k] * out[k];
         const proj = inner / vNormSq;
-        for (let k = 0; k < this.M; ++k) out[k] -= proj * v[k];
+        for (let k = 0; k < M; ++k) out[k] -= proj * v[k];
       }
     }
 
@@ -808,7 +903,7 @@ export class SkewSymmetricTriadOperator {
     let inner = 0.0;
     let maxIdx = 0;
     let maxAbsV = 0.0;
-    for (let k = 0; k < this.M; ++k) {
+    for (let k = 0; k < M; ++k) {
       inner += v[k] * out[k];
       const absV = Math.abs(v[k]);
       if (absV > maxAbsV) {
@@ -820,8 +915,13 @@ export class SkewSymmetricTriadOperator {
       out[maxIdx] -= inner / v[maxIdx];
     }
 
-    for (let k = 0; k < this.M; ++k) out[k] = flushDenormal(out[k]);
+    for (let k = 0; k < M; ++k) out[k] = flushDenormal(out[k]);
     return out;
+  }
+
+  evaluate(u, v, outBuf = null) {
+    const A = this.contractFlat(u, this.lieMatrixFlat);
+    return this.evaluateWithMatrix(A, 1.0, v, outBuf);
   }
 }
 
@@ -833,6 +933,15 @@ export class SlowFastTriadCascade {
     this.unrollSteps = 4;
     this.lastRadialDrift = 0.0;
     this.lastTangentOrthErr = 0.0;
+
+    // Pre-allocated scratch buffers for zero-allocation audio processing
+    this._v0 = new Float32Array(16);
+    this._uCur = new Float32Array(16);
+    this._vCur = new Float32Array(16);
+    this._scaledU = new Float32Array(16);
+    this._deltaV = new Float32Array(16);
+    this._vUpd = new Float32Array(16);
+    this._vTilde = new Float32Array(16);
   }
 
   reset() {
@@ -840,32 +949,84 @@ export class SlowFastTriadCascade {
     this.lastTangentOrthErr = 0.0;
   }
 
-  static retractToSphere(vUpd, vRef) {
+  static retractToSphere(vUpd, vRef, outBuf = null) {
     let refNormSq = 0.0;
     let updNormSq = 0.0;
     for (let i = 0; i < 16; ++i) {
       refNormSq += vRef[i] * vRef[i];
       updNormSq += vUpd[i] * vUpd[i];
     }
-    if (refNormSq <= 1.0e-30 || updNormSq <= 1.0e-30) return new Float32Array(vUpd);
+    const out = outBuf || new Float32Array(16);
+    if (refNormSq <= 1.0e-30 || updNormSq <= 1.0e-30) {
+      out.set(vUpd);
+      return out;
+    }
 
     const scale = Math.sqrt(refNormSq) / Math.sqrt(updNormSq);
-    const out = new Float32Array(16);
     for (let i = 0; i < 16; ++i) {
       out[i] = flushDenormal(vUpd[i] * scale);
     }
     return out;
   }
 
-  processCascade(uSlow, vFast, triadOp, unrollOverride = 0) {
+  processCascadeFast(lieMatrixFlat, vFast, triadOp, unrollOverride = 0) {
     const K = (unrollOverride >= 1 && unrollOverride <= 16) ? unrollOverride : this.unrollSteps;
-    const v0 = new Float32Array(vFast);
+    const v0 = this._v0;
+    const vCur = this._vCur;
+    const deltaV = this._deltaV;
+    const vUpd = this._vUpd;
+    const vTilde = this._vTilde;
+
+    v0.set(vFast);
+    vCur.set(vFast);
 
     let norm0Sq = 0.0;
     for (let i = 0; i < 16; ++i) norm0Sq += v0[i] * v0[i];
 
-    const uCur = new Float32Array(uSlow);
-    let vCur = new Float32Array(vFast);
+    let maxOrthErr = 0.0;
+
+    for (let step = 0; step < K; ++step) {
+      const t = 16 - K + step;
+      const alpha_t = 0.15 * FastSinTable.sin(t * (kPi / 16.0));
+      const gamma_t = this.cascadeGain * (1.0 + alpha_t);
+
+      triadOp.evaluateWithMatrix(lieMatrixFlat, gamma_t, vCur, deltaV);
+
+      let inner = 0.0;
+      for (let i = 0; i < 16; ++i) inner += vCur[i] * deltaV[i];
+      maxOrthErr = Math.max(maxOrthErr, Math.abs(inner));
+
+      for (let i = 0; i < 16; ++i) vUpd[i] = vCur[i] + deltaV[i];
+
+      SlowFastTriadCascade.retractToSphere(vUpd, v0, vTilde);
+      vCur.set(vTilde);
+    }
+
+    let normFinalSq = 0.0;
+    for (let i = 0; i < 16; ++i) normFinalSq += vCur[i] * vCur[i];
+    this.lastRadialDrift = Math.abs(normFinalSq - norm0Sq);
+    this.lastTangentOrthErr = maxOrthErr;
+
+    return vCur;
+  }
+
+  processCascade(uSlow, vFast, triadOp, unrollOverride = 0) {
+    const K = (unrollOverride >= 1 && unrollOverride <= 16) ? unrollOverride : this.unrollSteps;
+    const v0 = this._v0;
+    const uCur = this._uCur;
+    const vCur = this._vCur;
+    const scaledU = this._scaledU;
+    const deltaV = this._deltaV;
+    const vUpd = this._vUpd;
+    const vTilde = this._vTilde;
+
+    v0.set(vFast);
+    uCur.set(uSlow);
+    vCur.set(vFast);
+
+    let norm0Sq = 0.0;
+    for (let i = 0; i < 16; ++i) norm0Sq += v0[i] * v0[i];
+
     const invK = 1.0 / K;
     let maxOrthErr = 0.0;
 
@@ -874,26 +1035,24 @@ export class SlowFastTriadCascade {
       const alpha_t = 0.15 * Math.sin(t * (kPi / 16.0));
       const gamma_t = this.cascadeGain * (1.0 + alpha_t);
 
-      const scaledU = new Float32Array(16);
       for (let i = 0; i < 16; ++i) scaledU[i] = uCur[i] * gamma_t;
 
-      const deltaV = triadOp.evaluate(scaledU, vCur);
+      triadOp.evaluate(scaledU, vCur, deltaV);
 
       let inner = 0.0;
       for (let i = 0; i < 16; ++i) inner += vCur[i] * deltaV[i];
       maxOrthErr = Math.max(maxOrthErr, Math.abs(inner));
 
-      const vUpd = new Float32Array(16);
       for (let i = 0; i < 16; ++i) vUpd[i] = vCur[i] + deltaV[i];
 
-      const vTilde = SlowFastTriadCascade.retractToSphere(vUpd, v0);
+      SlowFastTriadCascade.retractToSphere(vUpd, v0, vTilde);
 
       if (step + 1 < K) {
         for (let i = 0; i < 16; ++i) {
           uCur[i] = flushDenormal(uCur[i] + invK * (vTilde[i] - vCur[i]));
         }
       }
-      vCur = vTilde;
+      vCur.set(vTilde);
     }
 
     let normFinalSq = 0.0;
@@ -1012,10 +1171,22 @@ export class ModalResonatorMatrix {
     this.modalEnergies = new Float32Array(16);
     this.slowState = new Float32Array(16);
     this.triadEnergyFlow = new Float32Array(16);
+    this.modeOutputs = new Float32Array(16);
+    this.coupledModesBuf = new Float32Array(16);
 
     this.triadOp = new SkewSymmetricTriadOperator(16, 16);
     this.triadCascade = new SlowFastTriadCascade(16);
     this.jordanField = new ContinuousSpectralJordanField();
+    this.cachedBoundaryMode = -1;
+    this.cachedCavityModes = new Float32Array(16);
+
+    // Cached SVF parameter state to avoid redundant trig per sample
+    this.coeffUpdateCounter = 0;
+    this.lastF0 = -1.0;
+    this.lastManifold = -1;
+    this.lastMorph = -1.0;
+    this.lastDamping = -1;
+    this.lastSpread = -1.0;
 
     // Prime delay diffusers (13.7 ms and 19.3 ms)
     this.delay1 = new HermiteDelayLine(2048);
@@ -1060,6 +1231,13 @@ export class ModalResonatorMatrix {
     this.lorenzFreqMult.fill(1.0);
     this.lorenzQSpread = 1.0;
     this.lorenzPanOffset = 0.0;
+    this.coeffUpdateCounter = 0;
+    this.lastF0 = -1.0;
+    this.lastManifold = -1;
+    this.lastMorph = -1.0;
+    this.lastDamping = -1;
+    this.lastSpread = -1.0;
+    this.cachedBoundaryMode = -1;
     this.delay1.reset();
     this.delay2.reset();
     this.diffuserFilter1.reset();
@@ -1107,11 +1285,15 @@ export class ModalResonatorMatrix {
   }
 
   updateFilterCoefficients(params) {
-    const baseRatios = this.computeBaseRatios(params.geometricManifold ?? 2, params.manifoldMorph ?? 0.0);
-    const baseQ = this.getDampingQ(params.dampingProfile ?? 0);
-    const f0 = clamp(params.fundamentalHz ?? 55.0, 7.0, 600.0);
-    const nyquist = this.sampleRate * 0.49;
+    const manifold = params.geometricManifold ?? 2;
+    const morph = params.manifoldMorph ?? 0.0;
+    const damping = params.dampingProfile ?? 0;
+    const f0 = clamp(params.fundamentalHz ?? 55.0, 7.0, 2000.0);
     const spread = clamp((params.stereoSpread ?? 75.0) * 0.01, 0.0, 1.0);
+
+    const baseRatios = this.computeBaseRatios(manifold, morph);
+    const baseQ = this.getDampingQ(damping);
+    const nyquist = this.sampleRate * 0.49;
 
     for (let i = 0; i < 16; ++i) {
       const fTarget = f0 * baseRatios[i] * this.lorenzFreqMult[i];
@@ -1126,7 +1308,10 @@ export class ModalResonatorMatrix {
       this.g[i] = g;
       this.k[i] = k;
       this.a1[i] = 1.0 / (1.0 + g * (g + k));
-      this.qNorm[i] = Math.sqrt(28.0 / (1.0 + 0.05 * qMode));
+      // Normalize SVF bandpass by k * sqrt(8.0 + 1.8 * Q) with high-Q energy compensation
+      // so both peak resonant gain and broadband RMS remain balanced across Q in [1.5, 400]
+      const highQComp = Math.pow(Math.max(1.0, qMode / 18.0), 0.38);
+      this.qNorm[i] = k * Math.sqrt(8.0 + 1.8 * qMode) * highQComp;
 
       // Golden Ratio Panning law
       const angle = (i * kGoldenAngleRad + this.lorenzPanOffset) % kTwoPi;
@@ -1135,43 +1320,67 @@ export class ModalResonatorMatrix {
       this.panL[i] = Math.cos(kHalfPi * normPan);
       this.panR[i] = Math.sin(kHalfPi * normPan);
     }
+
+    this.lastF0 = f0;
+    this.lastManifold = manifold;
+    this.lastMorph = morph;
+    this.lastDamping = damping;
+    this.lastSpread = spread;
   }
 
   processSample(exciterInput, params) {
-    this.updateFilterCoefficients(params);
+    const f0 = params.fundamentalHz ?? 55.0;
+    const manifold = params.geometricManifold ?? 2;
+    const morph = params.manifoldMorph ?? 0.0;
+    const damping = params.dampingProfile ?? 0;
+    const spread = params.stereoSpread ?? 75.0;
+    const controlTick = (this.coeffUpdateCounter & 7) === 0;
 
-    // 1. Acyclic Delay Diffuser
+    if (
+      controlTick ||
+      Math.abs(f0 - this.lastF0) > 1.0e-3 ||
+      manifold !== this.lastManifold ||
+      Math.abs(morph - this.lastMorph) > 1.0e-4 ||
+      damping !== this.lastDamping ||
+      Math.abs(spread - this.lastSpread) > 1.0e-3
+    ) {
+      this.updateFilterCoefficients(params);
+    }
+    ++this.coeffUpdateCounter;
+
+    // 1. Acyclic Delay Diffuser (bounded feedback < 0.08 for unconditional stability)
     const diff1 = this.diffuserFilter1.process(this.delay1.readHermite(this.delay1Samples));
     const diff2 = this.diffuserFilter2.process(this.delay2.readHermite(this.delay2Samples));
     const tailDiff = (diff1 + diff2) * 0.5;
-    const xIn = exciterInput + tailDiff * 0.25;
+    const xIn = exciterInput + tailDiff * 0.14;
 
-    // 2. 16-Pole Zavalishin TPT SVF Step
-    const modeOutputs = new Float32Array(16);
+    // 2. 16-Pole Zavalishin TPT SVF Step (with input Q-normalization so internal states s1/s2 do not clip)
+    const modeOutputs = this.modeOutputs;
     for (let i = 0; i < 16; ++i) {
-      const vHp = this.a1[i] * (xIn - (this.k[i] + this.g[i]) * this.s1[i] - this.s2[i]);
+      const modeIn = xIn * this.qNorm[i];
+      const vHp = this.a1[i] * (modeIn - (this.k[i] + this.g[i]) * this.s1[i] - this.s2[i]);
       const vBp = this.g[i] * vHp + this.s1[i];
       const vLp = this.g[i] * vBp + this.s2[i];
 
       const vSq = vBp * vBp;
-      const radDamp = 1.0 / (1.0 + 0.08 * vSq);
+      const radDamp = 1.0 / (1.0 + 0.03 * vSq);
 
       let nextS1 = (2.0 * vBp - this.s1[i]) * radDamp;
       let nextS2 = 2.0 * vLp - this.s2[i];
 
-      if (Math.abs(nextS1) > 2.0) {
+      if (Math.abs(nextS1) > 4.0) {
         const sgn = nextS1 > 0 ? 1.0 : -1.0;
-        nextS1 = sgn * (2.0 + 2.0 * Math.tanh((Math.abs(nextS1) - 2.0) * 0.5));
+        nextS1 = sgn * (4.0 + 2.0 * Math.tanh((Math.abs(nextS1) - 4.0) * 0.5));
       }
-      if (Math.abs(nextS2) > 2.0) {
+      if (Math.abs(nextS2) > 4.0) {
         const sgn = nextS2 > 0 ? 1.0 : -1.0;
-        nextS2 = sgn * (2.0 + 2.0 * Math.tanh((Math.abs(nextS2) - 2.0) * 0.5));
+        nextS2 = sgn * (4.0 + 2.0 * Math.tanh((Math.abs(nextS2) - 4.0) * 0.5));
       }
 
-      this.s1[i] = flushDenormal(clamp(nextS1, -4.0, 4.0));
-      this.s2[i] = flushDenormal(clamp(nextS2, -4.0, 4.0));
+      this.s1[i] = flushDenormal(clamp(nextS1, -6.0, 6.0));
+      this.s2[i] = flushDenormal(clamp(nextS2, -6.0, 6.0));
 
-      const yOut = vBp * this.qNorm[i];
+      const yOut = vBp;
       modeOutputs[i] = flushDenormal(yOut);
       this.modalEnergies[i] = flushDenormal(0.999 * this.modalEnergies[i] + 0.001 * (yOut * yOut));
     }
@@ -1182,8 +1391,8 @@ export class ModalResonatorMatrix {
 
     let modalSum = 0.0;
     for (let i = 0; i < 16; ++i) modalSum += modeOutputs[i];
-    this.delay1.write(modalSum * 0.12);
-    this.delay2.write(-modalSum * 0.12);
+    this.delay1.write(modalSum * 0.025);
+    this.delay2.write(-modalSum * 0.025);
 
     // 4. DarkSnail Skew-Symmetric Triad & SlowFastTriadCascade in so(16)
     for (let i = 0; i < 16; ++i) {
@@ -1193,24 +1402,39 @@ export class ModalResonatorMatrix {
     this.triadCascade.cascadeGain = params.triadCouplingGain ?? 0.85;
     this.triadCascade.unrollSteps = params.zenoUnrollK ?? 4;
 
-    let coupledModes = modeOutputs;
+    const coupledModes = this.coupledModesBuf;
     if ((params.triadCouplingGain ?? 0.85) > 0.001) {
-      coupledModes = this.triadCascade.processCascade(this.slowState, modeOutputs, this.triadOp, params.zenoUnrollK ?? 4);
+      if (controlTick) {
+        this.triadOp.contractFlat(this.slowState, this.triadOp.lieMatrixFlat);
+      }
+      const cascadeOut = this.triadCascade.processCascadeFast(
+        this.triadOp.lieMatrixFlat,
+        modeOutputs,
+        this.triadOp,
+        params.zenoUnrollK ?? 4
+      );
+      coupledModes.set(cascadeOut);
       for (let i = 0; i < 16; ++i) {
         this.triadEnergyFlow[i] = flushDenormal(Math.abs(coupledModes[i] - modeOutputs[i]));
       }
     } else {
+      coupledModes.set(modeOutputs);
       this.triadEnergyFlow.fill(0.0);
     }
 
-    // 5. Jordan Cavity Mix
+    // 5. Jordan Cavity Mix (cached per boundary mode, positive spectral weighting)
     const cavityMix = clamp((params.porcelainCavityMix ?? 35.0) * 0.01, 0.0, 1.0);
     if (cavityMix > 0.001) {
-      this.jordanField.generateCavityField(1.0, 0.65, params.porcelainBoundaryMode ?? 1);
-      const cavityModes = this.jordanField.projectTo16Modes();
+      const boundaryMode = params.porcelainBoundaryMode ?? 1;
+      if (boundaryMode !== this.cachedBoundaryMode) {
+        this.cachedBoundaryMode = boundaryMode;
+        this.jordanField.generateCavityField(1.0, 0.65, boundaryMode);
+        this.cachedCavityModes.set(this.jordanField.projectTo16Modes());
+      }
+      const cavityModes = this.cachedCavityModes;
       for (let i = 0; i < 16; ++i) {
-        coupledModes[i] = flushDenormal(coupledModes[i] * (1.0 - cavityMix * 0.35) +
-          coupledModes[i] * cavityModes[i] * cavityMix * 0.75);
+        const cavityGain = 0.78 + 0.65 * Math.abs(cavityModes[i]);
+        coupledModes[i] = flushDenormal(coupledModes[i] * ((1.0 - cavityMix) + cavityMix * cavityGain));
       }
     }
 
@@ -1223,8 +1447,8 @@ export class ModalResonatorMatrix {
     }
 
     return {
-      left: flushDenormal(accL * 0.25),
-      right: flushDenormal(accR * 0.25)
+      left: flushDenormal(accL * 0.42),
+      right: flushDenormal(accR * 0.42)
     };
   }
 }
@@ -1326,7 +1550,9 @@ export class LorenzAttractor {
     const ratioUp   = Math.pow(2.0, detuneCents * (1.0 / 1200.0));
     const ratioDown = Math.pow(2.0, -detuneCents * (1.0 / 1200.0));
 
-    for (let i = 0; i < 16; ++i) {
+    // Anchor fundamental mode 0 near 1.0 so high-Q resonators stay locked to pitch
+    this.freqMultipliers[0] = 1.0 + 0.15 * (ratioDown - 1.0);
+    for (let i = 1; i < 16; ++i) {
       this.freqMultipliers[i] = (i % 2 === 1) ? ratioUp : ratioDown;
     }
 
@@ -1527,9 +1753,10 @@ export class MasteringChain {
     if (chorusEnable && chorusMix > 0.001) {
       const monoIn = (sigL + sigR) * 0.5;
       const compIn = this.preShelf.process(monoIn);
+      const sideIn = (sigL - sigR) * 0.35;
 
-      this.bbd1.write(compIn);
-      this.bbd2.write(compIn);
+      this.bbd1.write(compIn + sideIn);
+      this.bbd2.write(compIn - sideIn);
       this.bbd3.write(compIn);
 
       const depthSamples = (this.depthMs * 0.001) * this.sampleRate;
@@ -1552,9 +1779,9 @@ export class MasteringChain {
       const tap2 = this.deemph2.process(this.reconLp2.process(raw2));
       const tap3 = this.deemph3.process(this.reconLp3.process(raw3));
 
-      // Dimension D spatial matrix
-      const rawWetL = 0.5 * (tap1 - 0.5 * tap2 + 0.5 * tap3);
-      const rawWetR = 0.5 * (-0.5 * tap1 + tap2 + 0.5 * tap3);
+      // Dimension D spatial matrix (unity mid gain, wide tri-phase side modulation, mono-immune)
+      const rawWetL = 0.92 * (tap1 - 0.35 * tap2 + 0.45 * tap3);
+      const rawWetR = 0.92 * (-0.35 * tap1 + tap2 + 0.45 * tap3);
 
       const mid = 0.5 * (rawWetL + rawWetR);
       const side = 0.5 * (rawWetL - rawWetR);
@@ -1575,13 +1802,13 @@ export class MasteringChain {
       const subDrive = (sigL + sigR) * 0.5;
       const subWave = this.subResonator.process(subDrive);
       const subGain = dbToGain(subDb);
-      const subSignal = subWave * subGain * 0.45;
+      const subSignal = subWave * subGain * 0.25;
       sigL += subSignal;
       sigR += subSignal;
     }
 
     // 4. Colonic Saturation Drive & Hermite C1 Soft-Knee BoundedSaturator
-    const driveGain = 1.0 + 3.0 * clamp((params.colonicSaturationDrive ?? 30.0) * 0.01, 0.0, 1.0);
+    const driveGain = 0.85 + 1.15 * clamp((params.colonicSaturationDrive ?? 30.0) * 0.01, 0.0, 1.0);
     sigL *= driveGain;
     sigR *= driveGain;
 
@@ -1633,6 +1860,7 @@ export class PhysicalVoice {
     this.velocity = 0.0;
     this.onsetTime = 0;
 
+    this.baseFreqHz = 55.0;
     this.currentFreqHz = 55.0;
     this.targetFreqHz = 55.0;
     this.targetMidiNote = 33.0;
@@ -1653,6 +1881,14 @@ export class PhysicalVoice {
     this.modalMatrix = new ModalResonatorMatrix();
 
     this.params = {};
+    this._localExciterParams = {};
+    this._localModalParams = {};
+  }
+
+  setSeedOffset(voiceIndex) {
+    const offset = BigInt(voiceIndex) * 0x9E3779B97F4A7C15n;
+    this.mucosalExciter.setSeed((0x504F4F50454E32n + offset) & 0xFFFFFFFFFFFFFFFFn);
+    this.aeroFluidEngine.setSeed((0x4145524F464C55n + offset) & 0xFFFFFFFFFFFFFFFFn);
   }
 
   prepare(sampleRate) {
@@ -1689,24 +1925,41 @@ export class PhysicalVoice {
     }
   }
 
-  setTargetPitchMidi(midiNote, immediate = false) {
-    this.targetMidiNote = midiNote;
-    const effectiveNote = this.targetMidiNote + this.pitchBendOffsetSemitones;
-    this.targetFreqHz = clamp(midiNoteToHz(effectiveNote), 7.0, 420.0);
+  setTargetPitchMidi(midiNote, immediate = false, freqHz = null) {
+    if (Number.isFinite(freqHz) && freqHz > 0.0) {
+      this.baseFreqHz = clamp(freqHz, 7.0, 2000.0);
+      this.targetMidiNote = 69.0 + 12.0 * Math.log2(this.baseFreqHz / 440.0);
+    } else {
+      this.targetMidiNote = midiNote;
+      this.baseFreqHz = clamp(midiNoteToHz(midiNote), 7.0, 2000.0);
+    }
+    const bendFactor = Math.pow(2.0, this.pitchBendOffsetSemitones / 12.0);
+    this.targetFreqHz = clamp(this.baseFreqHz * bendFactor, 7.0, 2000.0);
     if (immediate) {
       this.currentFreqHz = this.targetFreqHz;
     }
   }
 
-  noteOn(midiNote, velocity) {
+  noteOn(midiNote, velocity, freqHz = null) {
     if (velocity <= 0.001) {
       this.noteOff(0.0);
       return;
     }
 
+    const wasHeldSameNote = this.active && this.gateState === 'NoteOn' && this.midiNote === midiNote;
+    if (this.active && !wasHeldSameNote) {
+      // Softly damp previous modal states on voice steal or re-articulation from another pitch to prevent click
+      for (let i = 0; i < 16; ++i) {
+        this.modalMatrix.s1[i] *= 0.35;
+        this.modalMatrix.s2[i] *= 0.35;
+      }
+      this.envelope = Math.min(this.envelope, 0.35);
+    }
+
     this.midiNote = midiNote;
     this.velocity = clamp(velocity, 0.0, 1.0);
-    this.setTargetPitchMidi(midiNote, !this.active);
+    // Immediate pitch assignment for new/stolen/released note onsets
+    this.setTargetPitchMidi(midiNote, !wasHeldSameNote, freqHz);
 
     this.mucosalExciter.triggerSlap(this.velocity, this.params.tissueHardness ?? 2.1);
     if (this.velocity > 0.60) {
@@ -1742,26 +1995,35 @@ export class PhysicalVoice {
     this.currentFreqHz += this.glideCoeff * (this.targetFreqHz - this.currentFreqHz);
     this.currentFreqHz = flushDenormal(this.currentFreqHz);
 
-    // 2. Dynamic colonic pressure
-    const localExciterParams = { ...this.params, frequencyHz: this.currentFreqHz };
+    // 2. Dynamic colonic pressure (in-place without per-sample Object.assign)
+    const p = this.params;
+    const savedPressure = p.colonicPressure;
+    const savedFreqHz = p.frequencyHz;
+    const savedFundamentalHz = p.fundamentalHz;
+
     const velocityScale = 0.35 + 0.65 * this.velocity;
-    localExciterParams.colonicPressure = clamp(
-      (this.params.colonicPressure ?? 0.70) * velocityScale + externalPressureMod,
+    p.frequencyHz = this.currentFreqHz;
+    p.fundamentalHz = this.currentFreqHz;
+    p.colonicPressure = clamp(
+      (savedPressure ?? 0.70) * velocityScale + externalPressureMod,
       0.0, 1.0
     );
 
     // 3. Mucosal Valve Excitation
-    const exciterSig = this.mucosalExciter.processSample(localExciterParams);
+    const exciterSig = this.mucosalExciter.processSample(p);
     const airVelocity = this.mucosalExciter.airVelocity;
-    const aperture = this.mucosalExciter.displacement;
+    const aperture = Math.max(this.mucosalExciter.displacement, this.mucosalExciter.meanAperture);
 
     // 4. Multiphase AeroFluid Flow
-    const fluidSig = this.aeroFluidEngine.processSample(airVelocity, aperture, 0.0, this.params);
+    const fluidSig = this.aeroFluidEngine.processSample(airVelocity, aperture, 0.0, p);
 
     // 5. 16-Pole Modal Resonator Matrix
     const totalExcitation = exciterSig + fluidSig;
-    const modalParams = { ...this.params, fundamentalHz: this.currentFreqHz };
-    const stereoOut = this.modalMatrix.processSample(totalExcitation, modalParams);
+    const stereoOut = this.modalMatrix.processSample(totalExcitation, p);
+
+    p.colonicPressure = savedPressure;
+    p.frequencyHz = savedFreqHz;
+    p.fundamentalHz = savedFundamentalHz;
 
     // 6. Local Vactrol Envelope Gate
     if (this.gateState === 'NoteOn') {
@@ -1811,8 +2073,12 @@ export class VoiceManager {
     this.pitchBendSemitones = 0.0;
     this.clock = 0;
 
-    this.voices = Array.from({ length: maxVoices }, () => new PhysicalVoice());
-    this.noteStack = []; // For mono legato note priority
+    this.voices = Array.from({ length: maxVoices }, (_, idx) => {
+      const v = new PhysicalVoice();
+      v.setSeedOffset(idx);
+      return v;
+    });
+    this.noteStack = []; // For mono legato & unison note priority
     this.parameters = {};
 
     this.unisonDetuneCents = [-14.0, -7.0, +7.0, +14.0];
@@ -1821,7 +2087,10 @@ export class VoiceManager {
 
   prepare(sampleRate) {
     this.sampleRate = sampleRate;
-    for (const v of this.voices) v.prepare(sampleRate);
+    for (let i = 0; i < this.voices.length; ++i) {
+      this.voices[i].setSeedOffset(i);
+      this.voices[i].prepare(sampleRate);
+    }
     this.reset();
   }
 
@@ -1832,7 +2101,10 @@ export class VoiceManager {
   }
 
   setVoicingMode(mode) {
-    this.voicingMode = mode;
+    if (this.voicingMode !== mode) {
+      this.allNotesOff();
+      this.voicingMode = mode;
+    }
   }
 
   setPortamentoGlideMs(glideMs) {
@@ -1845,9 +2117,11 @@ export class VoiceManager {
 
   setPitchBend(semitones) {
     this.pitchBendSemitones = semitones;
-    for (const v of this.voices) {
-      v.pitchBendOffsetSemitones = semitones;
-      v.setTargetPitchMidi(v.targetMidiNote, false);
+    for (let i = 0; i < this.voices.length; ++i) {
+      const v = this.voices[i];
+      const detune = (this.voicingMode === 2 && i < 4) ? (this.unisonDetuneCents[i] / 100.0) : 0.0;
+      v.pitchBendOffsetSemitones = semitones + detune;
+      v.setTargetPitchMidi(v.targetMidiNote, false, v.baseFreqHz);
     }
   }
 
@@ -1864,46 +2138,71 @@ export class VoiceManager {
     }
   }
 
-  noteOn(midiNote, velocity) {
+  noteOn(midiNote, velocity, freqHz = null) {
     ++this.clock;
     if (this.voicingMode === 0) {
-      // Mono Legato
-      const isLegato = this.voices[0].active;
-      this.noteStack.push({ midiNote, velocity });
+      // Mono Legato with deduplicated note stack & release re-articulation
       const v = this.voices[0];
+      const isLegato = v.active && v.gateState === 'NoteOn';
+      this.noteStack = this.noteStack.filter(n => n.midiNote !== midiNote);
+      this.noteStack.push({ midiNote, velocity, freqHz });
       v.onsetTime = this.clock;
-      v.setTargetPitchMidi(midiNote, !isLegato);
-      if (!isLegato) {
-        v.noteOn(midiNote, velocity);
+      v.pitchBendOffsetSemitones = this.pitchBendSemitones;
+      if (isLegato) {
+        v.midiNote = midiNote;
+        v.velocity = clamp(velocity, 0.0, 1.0);
+        v.setTargetPitchMidi(midiNote, false, freqHz);
+      } else {
+        v.noteOn(midiNote, velocity, freqHz);
       }
     } else if (this.voicingMode === 1) {
-      // 8-Voice Polyphonic
-      let freeIdx = this.voices.findIndex(v => !v.active);
-      if (freeIdx === -1) {
-        // Steal oldest / lowest velocity voice
+      // 8-Voice Polyphonic: retrigger existing same-note voice first, then free voice, then steal releasing/oldest
+      let targetIdx = this.voices.findIndex(v => v.active && v.midiNote === midiNote);
+      if (targetIdx === -1) {
+        targetIdx = this.voices.findIndex(v => !v.active);
+      }
+      if (targetIdx === -1) {
+        // Prefer stealing a releasing voice over a held voice
+        let bestIdx = 0;
+        let bestIsHeld = true;
         let oldestClock = Infinity;
-        let lowestVel = 2.0;
-        freeIdx = 0;
         for (let i = 0; i < this.maxVoices; ++i) {
-          if (this.voices[i].onsetTime < oldestClock || this.voices[i].velocity < lowestVel) {
+          const isHeld = this.voices[i].gateState === 'NoteOn';
+          if (bestIsHeld && !isHeld) {
+            bestIsHeld = false;
             oldestClock = this.voices[i].onsetTime;
-            lowestVel = this.voices[i].velocity;
-            freeIdx = i;
+            bestIdx = i;
+          } else if (isHeld === bestIsHeld && this.voices[i].onsetTime < oldestClock) {
+            oldestClock = this.voices[i].onsetTime;
+            bestIdx = i;
           }
         }
-        this.voices[freeIdx].killQuick();
+        targetIdx = bestIdx;
       }
-      const v = this.voices[freeIdx];
+      const v = this.voices[targetIdx];
       v.onsetTime = this.clock;
-      v.noteOn(midiNote, velocity);
+      v.pitchBendOffsetSemitones = this.pitchBendSemitones;
+      v.noteOn(midiNote, velocity, freqHz);
     } else if (this.voicingMode === 2) {
-      // Stereo Unison (4 voices)
+      // Stereo Unison (4 voices) with noteStack tracking for rollover and phase decorrelation
+      const isLegato = this.voices[0].active && this.voices[0].gateState === 'NoteOn';
+      this.noteStack = this.noteStack.filter(n => n.midiNote !== midiNote);
+      this.noteStack.push({ midiNote, velocity, freqHz });
       for (let i = 0; i < 4; ++i) {
         const v = this.voices[i];
         v.onsetTime = this.clock;
         const detuneSemi = this.unisonDetuneCents[i] / 100.0;
         v.pitchBendOffsetSemitones = this.pitchBendSemitones + detuneSemi;
-        v.noteOn(midiNote, velocity);
+        if (isLegato) {
+          v.midiNote = midiNote;
+          v.velocity = clamp(velocity, 0.0, 1.0);
+          v.setTargetPitchMidi(midiNote, false, freqHz);
+        } else {
+          v.noteOn(midiNote, velocity, freqHz);
+          // Stagger initial vactrol conductance & displacement slightly across unison voices for phase decorrelation
+          v.mucosalExciter.vactrolConductance = clamp(0.12 * i, 0.0, 0.45);
+          v.mucosalExciter.displacement = 0.00015 * (i + 1);
+        }
       }
     }
   }
@@ -1913,7 +2212,12 @@ export class VoiceManager {
       this.noteStack = this.noteStack.filter(n => n.midiNote !== midiNote);
       if (this.noteStack.length > 0) {
         const prev = this.noteStack[this.noteStack.length - 1];
-        this.voices[0].setTargetPitchMidi(prev.midiNote, false);
+        const v = this.voices[0];
+        v.midiNote = prev.midiNote;
+        v.velocity = prev.velocity;
+        v.gateState = 'NoteOn';
+        v.active = true;
+        v.setTargetPitchMidi(prev.midiNote, false, prev.freqHz);
       } else {
         this.voices[0].noteOff();
       }
@@ -1924,8 +2228,23 @@ export class VoiceManager {
         }
       }
     } else if (this.voicingMode === 2) {
-      for (let i = 0; i < 4; ++i) {
-        this.voices[i].noteOff();
+      this.noteStack = this.noteStack.filter(n => n.midiNote !== midiNote);
+      if (this.noteStack.length > 0) {
+        const prev = this.noteStack[this.noteStack.length - 1];
+        for (let i = 0; i < 4; ++i) {
+          const v = this.voices[i];
+          const detuneSemi = this.unisonDetuneCents[i] / 100.0;
+          v.pitchBendOffsetSemitones = this.pitchBendSemitones + detuneSemi;
+          v.midiNote = prev.midiNote;
+          v.velocity = prev.velocity;
+          v.gateState = 'NoteOn';
+          v.active = true;
+          v.setTargetPitchMidi(prev.midiNote, false, prev.freqHz);
+        }
+      } else {
+        for (let i = 0; i < 4; ++i) {
+          this.voices[i].noteOff();
+        }
       }
     }
   }
@@ -1938,20 +2257,38 @@ export class VoiceManager {
   processSample() {
     let sumL = 0.0;
     let sumR = 0.0;
-    for (const v of this.voices) {
+    let activeCount = 0;
+    const isUnison = this.voicingMode === 2;
+    for (let i = 0; i < this.voices.length; ++i) {
+      const v = this.voices[i];
       if (!v.active) continue;
       const s = v.processSample();
-      sumL += s.left;
-      sumR += s.right;
+      if (isUnison && i < 4) {
+        const pan = this.unisonPanOffsets[i]; // [-0.80, -0.30, +0.30, +0.80]
+        const normPan = 0.5 * (pan + 1.0);
+        const gainL = Math.cos(kHalfPi * normPan) * kSqrt2;
+        const gainR = Math.sin(kHalfPi * normPan) * kSqrt2;
+        sumL += s.left * gainL;
+        sumR += s.right * gainR;
+      } else {
+        sumL += s.left;
+        sumR += s.right;
+      }
+      ++activeCount;
+    }
+    if (activeCount > 1) {
+      const scale = 1.0 / Math.sqrt(activeCount);
+      sumL *= scale;
+      sumR *= scale;
     }
     return { left: sumL, right: sumR };
   }
 
   getActiveAperture() {
     for (const v of this.voices) {
-      if (v.active) return v.mucosalExciter.displacement;
+      if (v.active) return Math.max(v.mucosalExciter.displacement, v.mucosalExciter.meanAperture);
     }
-    return this.voices[0].mucosalExciter.displacement;
+    return Math.max(this.voices[0].mucosalExciter.displacement, this.voices[0].mucosalExciter.meanAperture);
   }
 
   getActivePressure() {
@@ -2018,6 +2355,7 @@ export class Pf02DspEngine {
 
     // 40 Parameters storage (ID -> Value)
     this.parameters = {};
+    this.modulatedSaturationDrive = 30.0;
     this.initDefaultParameters();
 
     // Telemetry decimation (60 Hz)
@@ -2099,8 +2437,8 @@ export class Pf02DspEngine {
     this.masteringChain.reset();
   }
 
-  noteOn(midiNote, velocity) {
-    this.voiceManager.noteOn(midiNote, velocity);
+  noteOn(midiNote, velocity, freqHz = null) {
+    this.voiceManager.noteOn(midiNote, velocity, freqHz);
   }
 
   noteOff(midiNote) {
@@ -2113,6 +2451,35 @@ export class Pf02DspEngine {
 
   allNotesOff() {
     this.voiceManager.allNotesOff();
+  }
+
+  triggerKineticBurst(burstType, velocity = 1.0) {
+    const v = this.voiceManager.voices[0];
+    const wasHeld = v.active && v.gateState === 'NoteOn';
+    const vel = clamp(velocity ?? 1.0, 0.1, 1.0);
+
+    if (!wasHeld) {
+      v.noteOn(33, vel);
+      v.envelope = Math.max(v.envelope, 0.90);
+    }
+
+    if (burstType === 'impulse' || burstType === 'IMPULS-SCHLAG') {
+      v.mucosalExciter.triggerSlap(vel, 2.8);
+    } else if (burstType === 'breakaway' || burstType === 'KARNOPP-ABRISS') {
+      v.mucosalExciter.triggerSealBurst(vel * 2.0);
+    } else if (burstType === 'splatter' || burstType === 'MINNAERT-PLOPP') {
+      v.aeroFluidEngine.triggerFlapBurst(vel, 0.9, 30.0);
+    } else if (burstType === 'cavity' || burstType === 'JORDAN-RESONANZ') {
+      v.modalMatrix.cachedBoundaryMode = -1;
+      v.modalMatrix.jordanField.generateCavityField(1.5, 0.8, 3);
+      v.modalMatrix.cachedCavityModes.set(v.modalMatrix.jordanField.projectTo16Modes());
+      v.modalMatrix.cachedBoundaryMode = 3;
+      v.mucosalExciter.triggerSealBurst(vel * 1.5);
+    }
+
+    if (!wasHeld) {
+      v.noteOff();
+    }
   }
 
   setParameter(key, val) {
@@ -2133,6 +2500,10 @@ export class Pf02DspEngine {
         break;
       case 'param_lorenz_chaos_depth':
         this.lorenzAttractor.setDepth(val * 0.01);
+        break;
+      case 'param_colonic_saturation_drive':
+        this.modulatedSaturationDrive = clamp(val, 0.0, 100.0);
+        this.voiceManager.setParameter('colonicSaturationDrive', val);
         break;
       case 'macro_gut_squeeze':
         this.applyMacroSqueeze(val);
@@ -2191,7 +2562,7 @@ export class Pf02DspEngine {
     const baseD = this.parameters.param_colonic_saturation_drive ?? 30.0;
     this.voiceManager.setParameter('colonicPressure', clamp(baseP + delta * 0.25, 0.0, 1.0));
     this.voiceManager.setParameter('mucosalTension', clamp(baseT + delta * 0.20, 0.0, 1.0));
-    this.voiceManager.setParameter('colonicSaturationDrive', clamp(baseD + delta * 25.0, 0.0, 100.0));
+    this.modulatedSaturationDrive = clamp(baseD + delta * 15.0, 0.0, 85.0);
   }
 
   applyMacroMoisture(moisture) {
@@ -2225,7 +2596,7 @@ export class Pf02DspEngine {
       dimensionDMode: Math.round(this.parameters.param_dimension_d_mode ?? 1),
       dimensionDMix: this.parameters.param_dimension_d_mix ?? 40.0,
       dimensionDSpread: 1.0,
-      colonicSaturationDrive: this.parameters.param_colonic_saturation_drive ?? 30.0,
+      colonicSaturationDrive: this.modulatedSaturationDrive ?? (this.parameters.param_colonic_saturation_drive ?? 30.0),
       visceralSubReinforceDb: this.parameters.param_visceral_sub_reinforce ?? 0.0,
       masterVolumeDb: this.parameters.param_master_volume_db ?? 0.0
     };

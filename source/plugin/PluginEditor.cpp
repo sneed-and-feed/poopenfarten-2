@@ -498,7 +498,8 @@ void Pf02AudioProcessorEditor::handleNoteOnFromWeb(const juce::var& data)
     if (!data.isObject()) return;
     const int midiNote = static_cast<int>(data.getProperty("midiNote", 60));
     const float velocity = static_cast<float>(data.getProperty("velocity", 0.8));
-    processorRef.noteOn(midiNote, velocity);
+    const float freqHz = static_cast<float>(data.getProperty("freqHz", 0.0));
+    processorRef.noteOn(midiNote, velocity, freqHz);
 }
 
 void Pf02AudioProcessorEditor::handleNoteOffFromWeb(const juce::var& data)

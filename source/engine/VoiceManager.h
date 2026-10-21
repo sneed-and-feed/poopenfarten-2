@@ -19,6 +19,7 @@ enum class NotePriority {
 struct NoteEntry {
     int   midiNote { -1 };
     float velocity { 0.0f };
+    float freqHz   { 0.0f };
 };
 
 /**
@@ -54,9 +55,10 @@ public:
     void setPitchBend(float semitones) noexcept;
 
     // MIDI Lifecycle
-    void noteOn(int midiNote, float velocity) noexcept;
+    void noteOn(int midiNote, float velocity, float freqHz = 0.0f) noexcept;
     void noteOff(int midiNote, float velocity = 0.0f) noexcept;
     void allNotesOff() noexcept;
+    void triggerKineticBurst(std::string_view burstType, float velocity = 1.0f) noexcept;
 
     // Parameter distribution
     void setParameter(parameters::ParameterId id, float value) noexcept;
@@ -91,9 +93,9 @@ private:
     size_t findVoiceToSteal() noexcept;
 
     // Mono-Legato Note Stack Management
-    void pushNoteStack(int midiNote, float velocity) noexcept;
+    void pushNoteStack(int midiNote, float velocity, float freqHz = 0.0f) noexcept;
     void removeNoteStack(int midiNote) noexcept;
-    [[nodiscard]] int getPriorityNote(float& outVelocity) const noexcept;
+    [[nodiscard]] int getPriorityNote(float& outVelocity, float& outFreqHz) const noexcept;
 
     // Subsystem state
     float mSampleRate { 48000.0f };

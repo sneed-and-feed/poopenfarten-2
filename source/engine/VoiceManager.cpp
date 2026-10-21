@@ -4,13 +4,17 @@
 namespace pf02::engine {
 
 VoiceManager::VoiceManager() noexcept {
+    for (size_t i = 0; i < kMaxVoices; ++i) {
+        mVoices[i].setSeedOffset(i);
+    }
     reset();
 }
 
 void VoiceManager::prepare(double sampleRate) noexcept {
     mSampleRate = static_cast<float>(sampleRate > 100.0 ? sampleRate : 48000.0);
-    for (auto& v : mVoices) {
-        v.prepare(mSampleRate);
+    for (size_t i = 0; i < kMaxVoices; ++i) {
+        mVoices[i].setSeedOffset(i);
+        mVoices[i].prepare(mSampleRate);
     }
 }
 
@@ -77,11 +81,12 @@ void VoiceManager::setLorenzModulation(
 // ============================================================================
 // Mono-Legato Note Priority Stack
 // ============================================================================
-void VoiceManager::pushNoteStack(int midiNote, float velocity) noexcept {
-    // Check if already in stack, update velocity if so
+void VoiceManager::pushNoteStack(int midiNote, float velocity, float freqHz) noexcept {
+    // Check if already in stack, update velocity and freqHz if so
     for (size_t i = 0; i < mNoteStackCount; ++i) {
         if (mNoteStack[i].midiNote == midiNote) {
             mNoteStack[i].velocity = velocity;
+            mNoteStack[i].freqHz = freqHz;
             // Move to top of stack
             NoteEntry entry = mNoteStack[i];
             for (size_t j = i; j + 1 < mNoteStackCount; ++j) {
@@ -93,13 +98,13 @@ void VoiceManager::pushNoteStack(int midiNote, float velocity) noexcept {
     }
 
     if (mNoteStackCount < kMaxNoteStack) {
-        mNoteStack[mNoteStackCount++] = { midiNote, velocity };
+        mNoteStack[mNoteStackCount++] = { midiNote, velocity, freqHz };
     } else {
         // Drop oldest
         for (size_t i = 0; i + 1 < kMaxNoteStack; ++i) {
             mNoteStack[i] = mNoteStack[i + 1];
         }
-        mNoteStack[kMaxNoteStack - 1] = { midiNote, velocity };
+        mNoteStack[kMaxNoteStack - 1] = { midiNote, velocity, freqHz };
     }
 }
 
@@ -115,9 +120,10 @@ void VoiceManager::removeNoteStack(int midiNote) noexcept {
     }
 }
 
-int VoiceManager::getPriorityNote(float& outVelocity) const noexcept {
+int VoiceManager::getPriorityNote(float& outVelocity, float& outFreqHz) const noexcept {
     if (mNoteStackCount == 0) {
         outVelocity = 0.0f;
+        outFreqHz = 0.0f;
         return -1;
     }
 
@@ -125,6 +131,7 @@ int VoiceManager::getPriorityNote(float& outVelocity) const noexcept {
         case NotePriority::Last: {
             const auto& entry = mNoteStack[mNoteStackCount - 1];
             outVelocity = entry.velocity;
+            outFreqHz = entry.freqHz;
             return entry.midiNote;
         }
         case NotePriority::Low: {
@@ -137,6 +144,7 @@ int VoiceManager::getPriorityNote(float& outVelocity) const noexcept {
                 }
             }
             outVelocity = mNoteStack[minIdx].velocity;
+            outFreqHz = mNoteStack[minIdx].freqHz;
             return minNote;
         }
         case NotePriority::High: {
@@ -149,10 +157,12 @@ int VoiceManager::getPriorityNote(float& outVelocity) const noexcept {
                 }
             }
             outVelocity = mNoteStack[maxIdx].velocity;
+            outFreqHz = mNoteStack[maxIdx].freqHz;
             return maxNote;
         }
     }
     outVelocity = mNoteStack[mNoteStackCount - 1].velocity;
+    outFreqHz = mNoteStack[mNoteStackCount - 1].freqHz;
     return mNoteStack[mNoteStackCount - 1].midiNote;
 }
 
@@ -187,28 +197,31 @@ size_t VoiceManager::findVoiceToSteal() noexcept {
 // ============================================================================
 // MIDI Note Lifecycle
 // ============================================================================
-void VoiceManager::noteOn(int midiNote, float velocity) noexcept {
+void VoiceManager::noteOn(int midiNote, float velocity, float freqHz) noexcept {
     ++mClock;
 
     if (mVoicingMode == parameters::VoicingMode::MonoLegato) {
-        const bool wasEmpty = (mNoteStackCount == 0);
-        pushNoteStack(midiNote, velocity);
+        const bool isLegato = (mNoteStackCount > 0) && mVoices[0].isActive() && mVoices[0].isNoteHeld();
+        pushNoteStack(midiNote, velocity, freqHz);
 
         float prioVel = velocity;
-        int prioNote = getPriorityNote(prioVel);
+        float prioFreqHz = freqHz;
+        int prioNote = getPriorityNote(prioVel, prioFreqHz);
 
-        if (wasEmpty) {
-            // Fresh note attack
-            mVoices[0].noteOn(prioNote, prioVel);
+        if (!isLegato) {
+            // Fresh note attack (or re-articulation from Release)
+            mVoices[0].noteOn(prioNote, prioVel, prioFreqHz);
+            mVoices[0].setOnsetTime(mClock);
         } else {
             // Legato portamento transition: glide frequency smoothly
-            mVoices[0].setTargetPitchMidi(static_cast<float>(prioNote), false);
+            mVoices[0].setTargetPitchMidi(static_cast<float>(prioNote), false, prioFreqHz);
         }
     } else if (mVoicingMode == parameters::VoicingMode::Poly8) {
         // 1. Check if same note is already active on a voice
         for (size_t i = 0; i < kMaxVoices; ++i) {
             if (mVoices[i].isActive() && mVoices[i].getMidiNote() == midiNote) {
-                mVoices[i].noteOn(midiNote, velocity);
+                mVoices[i].noteOn(midiNote, velocity, freqHz);
+                mVoices[i].setOnsetTime(mClock);
                 return;
             }
         }
@@ -216,7 +229,8 @@ void VoiceManager::noteOn(int midiNote, float velocity) noexcept {
         // 2. Search for a free/inactive voice
         for (size_t i = 0; i < kMaxVoices; ++i) {
             if (!mVoices[i].isActive()) {
-                mVoices[i].noteOn(midiNote, velocity);
+                mVoices[i].noteOn(midiNote, velocity, freqHz);
+                mVoices[i].setOnsetTime(mClock);
                 return;
             }
         }
@@ -224,13 +238,30 @@ void VoiceManager::noteOn(int midiNote, float velocity) noexcept {
         // 3. All voices active: steal voice with de-click fade-out
         const size_t stealIdx = findVoiceToSteal();
         mVoices[stealIdx].killQuick();
-        mVoices[stealIdx].noteOn(midiNote, velocity);
+        mVoices[stealIdx].noteOn(midiNote, velocity, freqHz);
+        mVoices[stealIdx].setOnsetTime(mClock);
     } else if (mVoicingMode == parameters::VoicingMode::StereoUnison) {
-        // 4 voices assigned to a single note with detuning offsets
+        const bool isLegato = (mNoteStackCount > 0) && mVoices[0].isActive() && mVoices[0].isNoteHeld();
+        pushNoteStack(midiNote, velocity, freqHz);
+
+        float prioVel = velocity;
+        float prioFreqHz = freqHz;
+        int prioNote = getPriorityNote(prioVel, prioFreqHz);
+
+        // 4 voices assigned to a single note with detuning offsets and staggered initial phases
         for (size_t v = 0; v < 4; ++v) {
-            const float detunedMidi = static_cast<float>(midiNote) + (kUnisonDetuneCents[v] / 100.0f);
-            mVoices[v].setTargetPitchMidi(detunedMidi, !mVoices[v].isActive());
-            mVoices[v].noteOn(midiNote, velocity);
+            const float detunedMidi = static_cast<float>(prioNote) + (kUnisonDetuneCents[v] / 100.0f);
+            const float detunedFreq = (std::isfinite(prioFreqHz) && prioFreqHz > 0.0f)
+                ? (prioFreqHz * std::pow(2.0f, kUnisonDetuneCents[v] / 1200.0f))
+                : 0.0f;
+            if (!isLegato) {
+                mVoices[v].noteOn(prioNote, prioVel, detunedFreq);
+                mVoices[v].setTargetPitchMidi(detunedMidi, true, detunedFreq);
+                mVoices[v].setInitialPhaseOffset(static_cast<float>(v) * 0.25f);
+                mVoices[v].setOnsetTime(mClock);
+            } else {
+                mVoices[v].setTargetPitchMidi(detunedMidi, false, detunedFreq);
+            }
         }
     }
 }
@@ -240,8 +271,9 @@ void VoiceManager::noteOff(int midiNote, float velocity) noexcept {
         removeNoteStack(midiNote);
         if (mNoteStackCount > 0) {
             float prioVel = 0.0f;
-            int prioNote = getPriorityNote(prioVel);
-            mVoices[0].setTargetPitchMidi(static_cast<float>(prioNote), false);
+            float prioFreqHz = 0.0f;
+            int prioNote = getPriorityNote(prioVel, prioFreqHz);
+            mVoices[0].setTargetPitchMidi(static_cast<float>(prioNote), false, prioFreqHz);
         } else {
             mVoices[0].noteOff(velocity);
         }
@@ -252,8 +284,22 @@ void VoiceManager::noteOff(int midiNote, float velocity) noexcept {
             }
         }
     } else if (mVoicingMode == parameters::VoicingMode::StereoUnison) {
-        for (size_t v = 0; v < 4; ++v) {
-            mVoices[v].noteOff(velocity);
+        removeNoteStack(midiNote);
+        if (mNoteStackCount > 0) {
+            float prioVel = 0.0f;
+            float prioFreqHz = 0.0f;
+            int prioNote = getPriorityNote(prioVel, prioFreqHz);
+            for (size_t v = 0; v < 4; ++v) {
+                const float detunedMidi = static_cast<float>(prioNote) + (kUnisonDetuneCents[v] / 100.0f);
+                const float detunedFreq = (std::isfinite(prioFreqHz) && prioFreqHz > 0.0f)
+                    ? (prioFreqHz * std::pow(2.0f, kUnisonDetuneCents[v] / 1200.0f))
+                    : 0.0f;
+                mVoices[v].setTargetPitchMidi(detunedMidi, false, detunedFreq);
+            }
+        } else {
+            for (size_t v = 0; v < 4; ++v) {
+                mVoices[v].noteOff(velocity);
+            }
         }
     }
 }
@@ -263,6 +309,10 @@ void VoiceManager::allNotesOff() noexcept {
     for (auto& v : mVoices) {
         v.noteOff(0.0f);
     }
+}
+
+void VoiceManager::triggerKineticBurst(std::string_view burstType, float velocity) noexcept {
+    mVoices[0].triggerKineticBurst(burstType, velocity);
 }
 
 // ============================================================================
@@ -296,12 +346,22 @@ void VoiceManager::processBlock(
         float sumL = 0.0f;
         float sumR = 0.0f;
 
-        for (auto& v : mVoices) {
+        for (size_t vIdx = 0; vIdx < kMaxVoices; ++vIdx) {
+            auto& v = mVoices[vIdx];
             if (v.isActive()) {
                 float vL = 0.0f, vR = 0.0f;
                 v.processSample(vL, vR, externalPressureMod);
-                sumL += vL;
-                sumR += vR;
+                if (mVoicingMode == parameters::VoicingMode::StereoUnison && vIdx < 4) {
+                    const float pan = kUnisonPanOffsets[vIdx];
+                    const float normPan = 0.5f * (pan + 1.0f);
+                    const float gainL = std::cos(dsp::kHalfPi * normPan) * dsp::kSqrt2;
+                    const float gainR = std::sin(dsp::kHalfPi * normPan) * dsp::kSqrt2;
+                    sumL += vL * gainL;
+                    sumR += vR * gainR;
+                } else {
+                    sumL += vL;
+                    sumR += vR;
+                }
             }
         }
 

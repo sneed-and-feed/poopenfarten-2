@@ -52,6 +52,7 @@ public:
     void triggerDroplet(float intensity) noexcept;
     void triggerPeristalticPulse(float intensity) noexcept;
     void triggerFlapBurst(float openingIntensity, float moisture, float dropletRate) noexcept;
+    void setSeed(uint64_t seed) noexcept { mBaseSeed = seed; mPrng.setSeed(seed); }
 
     // Telemetry getters
     [[nodiscard]] float getBubbleActivity() const noexcept { return mBubbleActivity; }
@@ -114,6 +115,7 @@ private:
     void updateEuclideanStep(const AeroFluidParams& p) noexcept;
 
     float mSampleRate { 48000.0f };
+    uint64_t mBaseSeed { 0x4145524F464C55ULL };
     FastPRNG mPrng { 0x4145524F464C55ULL }; // "AEROFLU"
 
     // 1. Helical Beltrami Vortex Jet & Pink Noise State

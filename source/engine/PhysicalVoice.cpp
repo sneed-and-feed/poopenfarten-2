@@ -49,11 +49,17 @@ void PhysicalVoice::updateFrequencyGlide() noexcept {
     }
 }
 
-void PhysicalVoice::setTargetPitchMidi(float midiNote, bool immediate) noexcept {
+void PhysicalVoice::setTargetPitchMidi(float midiNote, bool immediate, float freqHz) noexcept {
     mTargetMidiNote = midiNote;
-    const float effectiveNote = mTargetMidiNote + mPitchBendOffsetSemitones;
-    mTargetFreqHz = 440.0f * std::pow(2.0f, (effectiveNote - 69.0f) / 12.0f);
-    mTargetFreqHz = std::clamp(mTargetFreqHz, 7.0f, 420.0f);
+    if (std::isfinite(freqHz) && freqHz > 0.0f) {
+        mBaseTargetFreqHz = freqHz;
+        mTargetFreqHz = mBaseTargetFreqHz * std::pow(2.0f, mPitchBendOffsetSemitones / 12.0f);
+    } else {
+        mBaseTargetFreqHz = 0.0f;
+        const float effectiveNote = mTargetMidiNote + mPitchBendOffsetSemitones;
+        mTargetFreqHz = 440.0f * std::pow(2.0f, (effectiveNote - 69.0f) / 12.0f);
+    }
+    mTargetFreqHz = std::clamp(mTargetFreqHz, 7.0f, 2000.0f);
 
     if (immediate) {
         mCurrentFreqHz = mTargetFreqHz;
@@ -68,21 +74,25 @@ void PhysicalVoice::setGlideTimeMs(float glideMs) noexcept {
 
 void PhysicalVoice::setPitchBendOffset(float semitones) noexcept {
     mPitchBendOffsetSemitones = semitones;
-    setTargetPitchMidi(mTargetMidiNote, false);
+    setTargetPitchMidi(mTargetMidiNote, false, mBaseTargetFreqHz);
 }
 
-void PhysicalVoice::noteOn(int midiNote, float velocity) noexcept {
+void PhysicalVoice::noteOn(int midiNote, float velocity, float freqHz) noexcept {
     if (velocity <= 0.001f) {
         noteOff(0.0f);
         return;
     }
 
+    const bool wasHeldSameNote = mActive && (mGateState == GateState::NoteOn) && (mMidiNote == midiNote);
     mMidiNote = midiNote;
     mVelocity = std::clamp(velocity, 0.0f, 1.0f);
     mOnsetTime = 0; // Updated by VoiceManager timestamp
 
-    // Pitch assignment
-    setTargetPitchMidi(static_cast<float>(midiNote), !mActive);
+    // Pitch assignment: snap immediately unless re-articulating the same held note
+    setTargetPitchMidi(static_cast<float>(midiNote), !wasHeldSameNote, freqHz);
+    if (!wasHeldSameNote && mActive) {
+        mModalMatrix.dampStates(0.25f);
+    }
 
     // Initial mechanical excitation slap
     mMucosalExciter.triggerSlap(mVelocity, mMucosalParams.tissueHardness);
@@ -105,6 +115,29 @@ void PhysicalVoice::noteOn(int midiNote, float velocity) noexcept {
     mStealFadeGain = 1.0f;
 }
 
+void PhysicalVoice::triggerKineticBurst(std::string_view burstType, float velocity) noexcept {
+    const float safeVel = std::clamp(velocity, 0.1f, 1.0f);
+    const bool wasHeld = isNoteHeld();
+
+    if (burstType == "impulse") {
+        mMucosalExciter.triggerSlap(safeVel, 2.8f);
+    } else if (burstType == "breakaway") {
+        mMucosalExciter.triggerSealBurst(safeVel * 2.0f);
+    } else if (burstType == "splatter") {
+        mAeroFluidEngine.triggerFlapBurst(safeVel, 0.9f, 30.0f);
+    } else if (burstType == "cavity") {
+        mMucosalExciter.triggerSealBurst(safeVel * 1.4f);
+    } else {
+        mMucosalExciter.triggerSlap(safeVel, 2.5f);
+    }
+
+    if (!wasHeld) {
+        noteOn(33, safeVel);
+        mEnvelope = std::max(mEnvelope, 0.95f * safeVel);
+        noteOff(0.0f);
+    }
+}
+
 void PhysicalVoice::noteOff(float velocity) noexcept {
     (void)velocity;
     mGateState = GateState::Release;
@@ -115,6 +148,7 @@ void PhysicalVoice::noteOff(float velocity) noexcept {
 void PhysicalVoice::killQuick() noexcept {
     mStealingFade = true;
     mStealFadeGain = 1.0f;
+    mModalMatrix.dampStates(0.20f);
 }
 
 void PhysicalVoice::setLorenzModulation(

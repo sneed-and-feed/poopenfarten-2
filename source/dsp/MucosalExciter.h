@@ -42,9 +42,14 @@ public:
     // Direct kinetic triggers
     void triggerSealBurst(float burstIntensity) noexcept;
     void triggerSlap(float velocity, float hardness = 2.1f) noexcept;
+    void setSeed(uint64_t seed) noexcept { mBaseSeed = seed; mPrng.setSeed(seed); }
+    void setInitialPhaseOffset(float normPhase) noexcept {
+        mVactrolConductance = std::clamp(normPhase * 0.15f, 0.0f, 0.25f);
+        mDisplacement = std::clamp(normPhase * 0.0002f, 0.0f, 0.0005f);
+    }
 
     // Telemetry and status queries
-    [[nodiscard]] float getAperture() const noexcept { return mDisplacement; }
+    [[nodiscard]] float getAperture() const noexcept { return std::max(mDisplacement, mMeanAperture); }
     [[nodiscard]] float getAirVelocity() const noexcept { return mAirVelocity; }
     [[nodiscard]] float getColonicPressure() const noexcept { return mUpstreamPressure; }
     [[nodiscard]] float getVactrolConductance() const noexcept { return mVactrolConductance; }
@@ -56,10 +61,12 @@ public:
 
 private:
     float mSampleRate { 48000.0f };
+    uint64_t mBaseSeed { 0x504F4F50454E32ULL };
     FastPRNG mPrng { 0x504F4F50454E32ULL }; // "POOPEN2"
 
     // Mucosal valve mechanical state
     float mDisplacement       { 0.001f }; // y(t) aperture opening (meters)
+    float mMeanAperture       { 0.0f };   // Smoothed envelope of aperture opening
     float mVelocity           { 0.0f };   // dy/dt tissue wall velocity (m/s)
     float mAcceleration       { 0.0f };   // d^2y/dt^2 (m/s^2)
     float mAirVelocity        { 0.0f };   // Bernoulli slit air velocity (m/s)
@@ -68,10 +75,13 @@ private:
 
     // Karnopp & Stribeck friction state
     bool  mStuck              { false };  // Sticky mucosal seal locked state
+    bool  mWasInContact       { true };   // Previous sample contact state
     float mBurstThresholdPa   { 300.0f }; // Dynamic breakaway pressure threshold
     bool  mJustOpened         { false };  // Impulse flag on breakaway
     float mOpeningTransientAmp{ 0.0f };
     float mImpactSlapAmp      { 0.0f };
+    float mPendingOpeningAmp  { 0.0f };
+    float mPendingSlapAmp     { 0.0f };
 
     // Buchla 292 optical vactrol sag state
     float mVactrolConductance { 0.0f };

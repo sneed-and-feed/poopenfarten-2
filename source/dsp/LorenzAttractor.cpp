@@ -94,7 +94,9 @@ void LorenzAttractor::updateNormalizedOutputs() noexcept {
     const float ratioUp   = std::pow(2.0f, detuneCents * (1.0f / 1200.0f));
     const float ratioDown = std::pow(2.0f, -detuneCents * (1.0f / 1200.0f));
 
-    for (size_t i = 0; i < kNumModes; ++i) {
+    // Anchor fundamental mode 0 so high-Q resonators stay pitch-locked to the exciter
+    mFreqMultipliers[0] = 1.0f + 0.15f * (ratioDown - 1.0f);
+    for (size_t i = 1; i < kNumModes; ++i) {
         // Odd modes detune up, even modes detune down
         mFreqMultipliers[i] = (i % 2 == 1) ? ratioUp : ratioDown;
     }

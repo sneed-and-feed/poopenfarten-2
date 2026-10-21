@@ -120,11 +120,12 @@ void MasteringChain::process(
     // 2. Roland Dimension D Tri-Phase BBD Chorus
     if (params.dimensionDEnable && params.dimensionDMix > 0.01f) {
         const float monoIn = (sigL + sigR) * 0.5f;
+        const float sideIn = (sigL - sigR) * 0.35f;
         // Compander pre-emphasis
         const float compIn = mPreShelf.process(monoIn);
 
-        mBbd1.write(compIn);
-        mBbd2.write(compIn);
+        mBbd1.write(compIn + sideIn);
+        mBbd2.write(compIn - sideIn);
         mBbd3.write(compIn);
 
         const float depthSamples = (mDepthMs * 0.001f) * mSampleRate;
@@ -151,9 +152,9 @@ void MasteringChain::process(
         const float tap2 = mDeemph2.process(mReconLp2.process(raw2));
         const float tap3 = mDeemph3.process(mReconLp3.process(raw3));
 
-        // Roland Dimension D Spatial Matrix
-        const float rawWetL = 0.5f * (tap1 - 0.5f * tap2 + 0.5f * tap3);
-        const float rawWetR = 0.5f * (-0.5f * tap1 + tap2 + 0.5f * tap3);
+        // Roland Dimension D Spatial Matrix (calibrated for unity power & zero mono-sum cancellation)
+        const float rawWetL = 0.92f * (tap1 - 0.35f * tap2 + 0.45f * tap3);
+        const float rawWetR = 0.92f * (-0.35f * tap1 + tap2 + 0.45f * tap3);
 
         const float mid = 0.5f * (rawWetL + rawWetR);
         const float side = 0.5f * (rawWetL - rawWetR);
@@ -176,13 +177,14 @@ void MasteringChain::process(
         const float subDrive = (sigL + sigR) * 0.5f;
         const float subWave = mSubResonator.process(subDrive);
         const float subGain = dbToGain(params.visceralSubReinforceDb);
-        const float subSignal = subWave * subGain * 0.45f;
+        const float subSignal = subWave * subGain * 0.25f;
         sigL += subSignal;
         sigR += subSignal;
     }
 
     // 4. Colonic Drive & Hermite C^1 Soft-Knee BoundedSaturator
-    const float driveGain = 1.0f + 3.0f * std::clamp(params.colonicSaturationDrive * 0.01f, 0.0f, 1.0f);
+    const float driveNorm = std::clamp(params.colonicSaturationDrive * 0.01f, 0.0f, 1.0f);
+    const float driveGain = 0.85f + 1.15f * driveNorm;
     sigL *= driveGain;
     sigR *= driveGain;
 

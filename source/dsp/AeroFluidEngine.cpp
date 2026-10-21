@@ -10,7 +10,7 @@ AeroFluidEngine::AeroFluidEngine() noexcept {
 
 void AeroFluidEngine::prepare(double sampleRate) noexcept {
     mSampleRate = static_cast<float>(sampleRate > 100.0 ? sampleRate : 48000.0);
-    mPrng.setSeed(0x4145524F464C55ULL);
+    mPrng.setSeed(mBaseSeed);
     mViscosityFilter.reset();
     mGurgleFilter.reset();
     mGurgleFilter.setCutoff(mSampleRate, 850.0f);
@@ -184,19 +184,21 @@ float AeroFluidEngine::processSample(
         mPinkB2 = 0.96900f * mPinkB2 + white * 0.1538520f;
         const float pink = (mPinkB0 + mPinkB1 + mPinkB2 + white * 0.5362f) * 0.11f;
 
-        // Reynolds turbulence intensity
+        // Reynolds turbulence intensity modulated by instantaneous mucosal aperture
         const float turbLevel = std::clamp(params.reynoldsTurbulence, 0.0f, 1.0f);
-        const float turbGain = turbLevel * std::pow(posAirVel / 25.0f, 1.6f) * (1.0f + 0.6f * zenoFlux);
-        const float shearNoise = pink * turbGain * 0.35f;
+        const float apertureMod = std::clamp(posAperture / 0.0012f, 0.0f, 1.5f);
+        const float velNorm = std::clamp(posAirVel / 32.0f, 0.0f, 1.8f);
+        const float turbGain = turbLevel * std::pow(velNorm, 1.35f) * apertureMod * (1.0f + 0.45f * zenoFlux);
+        const float shearNoise = pink * turbGain * 0.32f;
 
-        // Helical Beltrami vortex whistle oscillator: f_vortex = lambda * v_air / (2 * pi)
+        // Helical Beltrami vortex formant modulation (kept in organic acoustic range)
         const float lambda = std::clamp(params.beltramiVortexPitch, 0.1f, 10.0f);
-        const float vortexFreq = std::clamp((lambda * posAirVel * 25.0f), 80.0f, mSampleRate * 0.45f);
+        const float vortexFreq = std::clamp((lambda * (45.0f + posAirVel * 4.5f)), 60.0f, std::min(2400.0f, mSampleRate * 0.45f));
         mVortexPhase += vortexFreq * (kTwoPi / mSampleRate);
         if (mVortexPhase >= kTwoPi) mVortexPhase -= kTwoPi;
 
         const float whistle = FastSinTable::sin(mVortexPhase);
-        mVortexWhistleLevel = whistle * turbGain * 0.18f;
+        mVortexWhistleLevel = whistle * (0.25f + 0.75f * pink * 3.0f) * turbGain * 0.08f;
 
         jetSignal = shearNoise + mVortexWhistleLevel;
     } else {

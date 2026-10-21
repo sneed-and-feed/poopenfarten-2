@@ -35,16 +35,25 @@ public:
     void reset() noexcept;
 
     // Note lifecycle
-    void noteOn(int midiNote, float velocity) noexcept;
+    void noteOn(int midiNote, float velocity, float freqHz = 0.0f) noexcept;
     void noteOff(float velocity = 0.0f) noexcept;
     void killQuick() noexcept; // Immediate de-click kill for voice stealing
+    void setOnsetTime(uint64_t onsetTime) noexcept { mOnsetTime = onsetTime; }
+    void triggerKineticBurst(std::string_view burstType, float velocity = 1.0f) noexcept;
+    void setSeedOffset(uint64_t idx) noexcept {
+        mMucosalExciter.setSeed(0x504F4F50454E32ULL + idx * 0x9E3779B97F4A7C15ULL);
+        mAeroFluidEngine.setSeed(0x4145524F464C55ULL + idx * 0xBF58476D1CE4E5B9ULL);
+    }
+    void setInitialPhaseOffset(float normPhase) noexcept {
+        mMucosalExciter.setInitialPhaseOffset(normPhase);
+    }
 
     // Parameter distribution
     void setParameter(parameters::ParameterId id, float value) noexcept;
     void setParameter(std::string_view idStr, float value) noexcept;
 
     // Pitch control & Portamento
-    void setTargetPitchMidi(float midiNote, bool immediate = false) noexcept;
+    void setTargetPitchMidi(float midiNote, bool immediate = false, float freqHz = 0.0f) noexcept;
     void setGlideTimeMs(float glideMs) noexcept;
     void setPitchBendOffset(float semitones) noexcept;
 
@@ -101,6 +110,7 @@ private:
     // Frequency & Portamento
     float mCurrentFreqHz { 55.0f };
     float mTargetFreqHz { 55.0f };
+    float mBaseTargetFreqHz { 0.0f };
     float mBaseMidiNote { 33.0f }; // A1
     float mTargetMidiNote { 33.0f };
     float mPitchBendOffsetSemitones { 0.0f };
