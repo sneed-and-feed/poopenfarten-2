@@ -122,10 +122,27 @@ private:
     float mAttackCoeff { 0.05f };
     float mReleaseCoeff { 0.999f };
 
+    enum class BurstMode {
+        None,
+        Impulse,
+        Breakaway,
+        Splatter,
+        Cavity
+    };
+
     // Stealing de-click crossfade
     bool  mStealingFade { false };
     float mStealFadeGain { 1.0f };
     float mStealFadeStep { 0.005f }; // 5 ms fade-out
+
+    // Kinetic Burst State
+    BurstMode mBurstMode { BurstMode::None };
+    bool      mBurstWasHeld { false };
+    int       mBurstSamplePos { 0 };
+    int       mBurstDurationSamples { 0 };
+    float     mBurstIntensity { 0.0f };
+    float     mBurstPhase { 0.0f };
+    int       mRetrigDampSamples { 0 };
 
     // Core Physical Subsystems
     dsp::MucosalExciter       mMucosalExciter;

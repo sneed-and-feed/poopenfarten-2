@@ -13,7 +13,7 @@ void AeroFluidEngine::prepare(double sampleRate) noexcept {
     mPrng.setSeed(mBaseSeed);
     mViscosityFilter.reset();
     mGurgleFilter.reset();
-    mGurgleFilter.setCutoff(mSampleRate, 850.0f);
+    mGurgleFilter.setCutoff(mSampleRate, 1450.0f);
     reset();
 }
 
@@ -29,7 +29,9 @@ void AeroFluidEngine::reset() noexcept {
         voice.active = false;
         voice.phase = 0.0f;
         voice.phaseInc = 0.0f;
+        voice.chirp = 1.00016f;
         voice.envelope = 0.0f;
+        voice.attackGain = 0.0f;
         voice.decayRate = 0.98f;
         voice.frequencyHz = 1500.0f;
     }
@@ -50,10 +52,10 @@ void AeroFluidEngine::reset() noexcept {
     mEuclideanStepTriggered = false;
 }
 
-void AeroFluidEngine::triggerBubble(float radiusMm, float intensity) noexcept {
+void AeroFluidEngine::triggerBubble(float radiusMm, float intensity, float chirpRate) noexcept {
     // Minnaert formula: f = 3.28325 / R (R in meters)
-    const float rClamped = std::clamp(radiusMm, 0.5f, 4.0f) * 0.001f; // in meters
-    const float freq = std::clamp(3.28325f / rClamped, 650.0f, 6566.0f);
+    const float rClamped = std::clamp(radiusMm, 0.5f, 6.5f) * 0.001f; // in meters
+    const float freq = std::clamp(3.28325f / rClamped, 380.0f, 6566.0f);
     const float nyquist = mSampleRate * 0.48f;
     const float safeFreq = std::min(freq, nyquist);
 
@@ -72,14 +74,21 @@ void AeroFluidEngine::triggerBubble(float radiusMm, float intensity) noexcept {
     }
 
     auto& v = mBubbleVoices[bestIdx];
+    const bool wasActive = v.active;
     v.active = true;
     v.frequencyHz = safeFreq;
-    v.phase = mPrng.nextFloat() * kTwoPi;
+    if (!wasActive) {
+        v.phase = 0.0f;
+        v.attackGain = 0.0f;
+    } else {
+        v.attackGain = std::min(v.attackGain, 0.25f);
+    }
     v.phaseInc = safeFreq * (kTwoPi / mSampleRate);
+    v.chirp = std::clamp(chirpRate, 1.0f, 1.001f);
     v.envelope = std::clamp(intensity, 0.01f, 1.0f);
 
     // Viscous acoustic bubble damping ratio
-    const float decayTimeSec = 0.012f + 0.018f * (rClamped * 1000.0f / 4.0f);
+    const float decayTimeSec = 0.014f + 0.022f * (rClamped * 1000.0f / 4.0f);
     v.decayRate = std::exp(-1.0f / (decayTimeSec * mSampleRate));
 }
 
@@ -220,8 +229,8 @@ float AeroFluidEngine::processSample(
     // Process resonant droplet filters
     float dropletSignal = 0.0f;
     for (size_t i = 0; i < kMaxDropletFilters; ++i) {
-        const float impulse = mDropletImpulses[i];
-        mDropletImpulses[i] = 0.0f; // Single-sample Dirac impulse
+        const float impulse = mDropletImpulses[i] * 0.35f;
+        mDropletImpulses[i] = flushDenormal(mDropletImpulses[i] * 0.65f);
         dropletSignal += mDropletFilters[i].process(impulse);
     }
 
@@ -245,21 +254,25 @@ float AeroFluidEngine::processSample(
     // Render 16 bubble voices
     float bubbleSum = 0.0f;
     float currentBubbleActivity = 0.0f;
+    const float maxPhaseInc = 0.45f * kTwoPi;
     for (auto& v : mBubbleVoices) {
         if (!v.active) continue;
 
-        const float val = v.envelope * FastSinTable::sin(v.phase);
+        v.attackGain += 0.14f * (1.0f - v.attackGain);
+        const float val = v.envelope * v.attackGain * FastSinTable::sin(v.phase);
         bubbleSum += val;
         currentBubbleActivity += v.envelope;
 
-        // Advance phase & apply exponential decay
+        // Advance phase, upward Minnaert chirp & exponential decay
         v.phase += v.phaseInc;
         if (v.phase >= kTwoPi) v.phase -= kTwoPi;
+        v.phaseInc = std::min(maxPhaseInc, v.phaseInc * v.chirp);
 
         v.envelope *= v.decayRate;
         if (v.envelope < 1.0e-4f) {
             v.active = false;
             v.envelope = 0.0f;
+            v.attackGain = 0.0f;
         }
     }
     mBubbleActivity = flushDenormal(currentBubbleActivity * (1.0f / static_cast<float>(kMaxBubbleVoices)));

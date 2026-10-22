@@ -58,6 +58,13 @@ void ModalResonatorMatrix::dampStates(float factor) noexcept {
     }
 }
 
+void ModalResonatorMatrix::exciteCavityField(float cavityScale, float aspect, int boundaryMode) noexcept {
+    mCachedBoundaryMode = -1;
+    mJordanField.generateCavityField(cavityScale, aspect, boundaryMode);
+    mCachedCavityModes = mJordanField.projectTo16Modes();
+    mCachedBoundaryMode = boundaryMode;
+}
+
 void ModalResonatorMatrix::computeBaseRatios(GeometricManifold manifold, float morph, ModalArray& outRatios) const noexcept {
     const float morphClamped = std::clamp(morph, 0.0f, 1.0f);
     const ModalArray* rA = nullptr;
@@ -174,7 +181,8 @@ void ModalResonatorMatrix::updateFilterCoefficients(const ModalMatrixParams& par
         // Input Q-normalization: scales excitation so internal SVF states s1, s2 remain bounded
         // while preserving rich resonant presence for high-Q profiles (Porcelain Q=125, BellBronze Q=240).
         const float highQComp = std::pow(std::max(1.0f, qMode / 18.0f), 0.38f);
-        mQNorm[i] = k * std::sqrt(8.0f + 1.8f * qMode) * highQComp;
+        const float bassHeadroom = (i == 0 && fClamped < 95.0f) ? (0.68f + 0.32f * (fClamped / 95.0f)) : 1.0f;
+        mQNorm[i] = k * std::sqrt(8.0f + 1.8f * qMode) * highQComp * bassHeadroom;
 
         // Golden Ratio Panning coefficients
         const float angle = std::fmod(static_cast<float>(i) * kGoldenAngleRad + mLorenzPanOffset, kTwoPi);
@@ -211,26 +219,26 @@ void ModalResonatorMatrix::processSample(
         const float vBp = mG[i] * vHp + mS1[i];
         const float vLp = mG[i] * vBp + mS2[i];
 
-        // Non-linear acoustic radiation resistance damping F_rad ~ v^2
-        const float vSq = vBp * vBp;
-        constexpr float kRadiationCoeff = 0.08f;
+        // Symmetric energy radiation resistance damping on both SVF states
+        const float vSq = vBp * vBp + vLp * vLp;
+        constexpr float kRadiationCoeff = 0.035f;
         const float radDamp = 1.0f / (1.0f + kRadiationCoeff * vSq);
 
         float nextS1 = (2.0f * vBp - mS1[i]) * radDamp;
-        float nextS2 = 2.0f * vLp - mS2[i];
+        float nextS2 = (2.0f * vLp - mS2[i]) * radDamp;
 
         // Contractive soft-saturation state bounding to prevent feedback blowup
-        if (std::abs(nextS1) > 2.0f) {
+        if (std::abs(nextS1) > 4.0f) {
             const float sgn = (nextS1 > 0.0f) ? 1.0f : -1.0f;
-            nextS1 = sgn * (2.0f + 2.0f * std::tanh((std::abs(nextS1) - 2.0f) * 0.5f));
+            nextS1 = sgn * (4.0f + 2.0f * std::tanh((std::abs(nextS1) - 4.0f) * 0.5f));
         }
-        if (std::abs(nextS2) > 2.0f) {
+        if (std::abs(nextS2) > 4.0f) {
             const float sgn = (nextS2 > 0.0f) ? 1.0f : -1.0f;
-            nextS2 = sgn * (2.0f + 2.0f * std::tanh((std::abs(nextS2) - 2.0f) * 0.5f));
+            nextS2 = sgn * (4.0f + 2.0f * std::tanh((std::abs(nextS2) - 4.0f) * 0.5f));
         }
 
-        mS1[i] = flushDenormal(std::clamp(nextS1, -4.0f, 4.0f));
-        mS2[i] = flushDenormal(std::clamp(nextS2, -4.0f, 4.0f));
+        mS1[i] = flushDenormal(std::clamp(nextS1, -6.0f, 6.0f));
+        mS2[i] = flushDenormal(std::clamp(nextS2, -6.0f, 6.0f));
 
         // Mode output (already Q-normalized at input so s1/s2 remain linear)
         const float yOut = vBp;
@@ -254,7 +262,7 @@ void ModalResonatorMatrix::processSample(
     // 4. DarkSnail Skew-Symmetric Bilinear Triad Coupling & SlowFastTriadCascade in so(16)
     // Smooth slow state vector
     for (size_t i = 0; i < kNumModes; ++i) {
-        mSlowState[i] = flushDenormal(0.995f * mSlowState[i] + 0.005f * modeOutputs[i]);
+        mSlowState[i] = flushDenormal(0.9985f * mSlowState[i] + 0.0015f * modeOutputs[i]);
     }
 
     mTriadCascade.setCascadeGain(params.triadCouplingGain);

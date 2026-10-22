@@ -31,6 +31,8 @@ void MucosalExciter::reset() noexcept {
     mImpactSlapAmp       = 0.0f;
     mPendingOpeningAmp   = 0.0f;
     mPendingSlapAmp      = 0.0f;
+    mFlowDerivSmooth     = 0.0f;
+    mTransientSmooth     = 0.0f;
     mVactrolConductance  = 0.0f;
     mDcBlocker.reset();
 }
@@ -57,8 +59,10 @@ float MucosalExciter::processSample(
     float& outAperture) noexcept
 {
     mJustOpened = (mPendingOpeningAmp > 0.0f);
-    mOpeningTransientAmp = mPendingOpeningAmp;
-    mImpactSlapAmp = mPendingSlapAmp;
+    const float mechOpening = mPendingOpeningAmp;
+    const float mechSlap = mPendingSlapAmp;
+    mOpeningTransientAmp = flushDenormal(std::max(mOpeningTransientAmp * 0.88f, mechOpening));
+    mImpactSlapAmp = flushDenormal(std::max(mImpactSlapAmp * 0.84f, mechSlap));
     mPendingOpeningAmp = 0.0f;
     mPendingSlapAmp = 0.0f;
 
@@ -85,7 +89,7 @@ float MucosalExciter::processSample(
     const float pDrive = std::pow(mVactrolConductance, 1.8f) * 2200.0f;
 
     // Relaxation when drive pressure is near zero
-    if (pDrive < 1.0e-3f && mOpeningTransientAmp <= 0.0f && mImpactSlapAmp <= 0.0f) {
+    if (pDrive < 1.0e-3f && mOpeningTransientAmp <= 1.0e-4f && mImpactSlapAmp <= 1.0e-4f) {
         mDisplacement = 0.0f;
         mMeanAperture *= 0.995f;
         mVelocity = 0.0f;
@@ -93,6 +97,8 @@ float MucosalExciter::processSample(
         mAirVelocity = 0.0f;
         mUpstreamPressure = 0.0f;
         mPrevVolumeFlow = 0.0f;
+        mFlowDerivSmooth = 0.0f;
+        mTransientSmooth = 0.0f;
         mStuck = true;
         mWasInContact = false;
         outAirVelocity = 0.0f;
@@ -114,12 +120,12 @@ float MucosalExciter::processSample(
     const float vScale = std::max(1.0e-5f, std::sqrt(kSpring / mEff) * y0);
 
     // Apply scale-invariant pending kinetic impulses relative to vScale and y0
-    if (mOpeningTransientAmp > 0.0f) {
-        mVelocity = std::max(mVelocity, std::min(2.2f, mOpeningTransientAmp) * vScale);
+    if (mechOpening > 0.0f) {
+        mVelocity = std::max(mVelocity, std::min(2.2f, mechOpening) * vScale);
         mDisplacement = std::max(mDisplacement, 0.12f * y0);
         mMeanAperture = std::max(mMeanAperture, mDisplacement);
-    } else if (mImpactSlapAmp > 0.0f) {
-        mVelocity = std::min(mVelocity, -std::min(1.6f, mImpactSlapAmp * 1.8f) * vScale);
+    } else if (mechSlap > 0.0f) {
+        mVelocity = std::min(mVelocity, -std::min(1.6f, mechSlap * 1.8f) * vScale);
     }
 
     // 3. Upstream Reservoir Pressure Accumulation & Subglottal/Colonic Compliance Venting
@@ -213,9 +219,10 @@ float MucosalExciter::processSample(
         const float xAlpha = std::pow(std::max(1.0e-6f, penNorm), hardness);
         fImpact = fScale * std::max(0.0f, kContactNorm * xAlpha * (1.0f + lambdaImpact * vPenNorm));
 
-        // Detect impact collision entry transient
+        // Detect impact collision entry transient with low-frequency smoothing
         if (!mWasInContact && vPenNorm > 0.15f) {
-            mImpactSlapAmp = std::max(mImpactSlapAmp, std::min(1.5f, vPenNorm * 0.45f * std::pow(hardness * 0.5f, 1.1f)));
+            const float lowFreqScale = std::clamp((fEff - 35.0f) / 140.0f, 0.06f, 0.55f);
+            mImpactSlapAmp = std::max(mImpactSlapAmp, std::min(1.5f, vPenNorm * 0.22f * lowFreqScale * std::pow(hardness * 0.5f, 1.1f)));
         }
         mWasInContact = true;
 
@@ -242,23 +249,38 @@ float MucosalExciter::processSample(
         mAcceleration = aNext;
     }
 
-    // 9. Acoustic Output Signal (Glottal/Mucosal Volume Flow Pulse + Derivative)
-    const float normAperture = (mDisplacement > 0.0f) ? std::clamp(mDisplacement / y0, 0.0f, 3.5f) : 0.0f;
-    const float normAirVel = std::clamp(mAirVelocity / 32.0f, 0.0f, 1.8f);
+    // 9. Acoustic Output Signal (C1-Smooth Glottal-Colonic Flow + Viscoelastic Wall Compliance)
+    const float posDisp = std::max(0.0f, mDisplacement);
+    const float smoothPosDisp = (posDisp * posDisp) / (posDisp + 0.06f * y0 + 1.0e-9f);
+    const float normAperture = std::clamp(smoothPosDisp / y0, 0.0f, 3.5f);
+    const float smoothAirVel = (!mStuck && smoothPosDisp > 1.0e-7f && mUpstreamPressure > 0.0f)
+        ? std::sqrt(2.0f * mUpstreamPressure / kAirDensityRho) * (normAperture / (0.24f + normAperture))
+        : 0.0f;
+    const float normAirVel = std::clamp(smoothAirVel / 32.0f, 0.0f, 1.8f);
     const float normVolumeFlow = normAperture * normAirVel;
 
-    // Frequency-normalized flow derivative dU/dt / omega0 so gain is uniform across all registers
-    const float dFlowNorm = ((normVolumeFlow - mPrevVolumeFlow) * mSampleRate) / std::max(80.0f, omega0);
+    // Frequency-normalized flow derivative dU/dt / omega0 with 1-pole smoothing
+    const float rawDFlow = ((normVolumeFlow - mPrevVolumeFlow) * mSampleRate) / (0.55f * omega0 + 48.0f);
     mPrevVolumeFlow = normVolumeFlow;
 
-    const float rawWave = (normVolumeFlow * 0.52f)
-                        + (std::clamp(dFlowNorm, -2.0f, 2.0f) * 0.34f)
-                        + (std::min(mImpactSlapAmp, 1.5f) * 0.25f)
-                        + (std::min(mOpeningTransientAmp, 2.2f) * 0.10f);
-    const float acousticWave = std::tanh(rawWave * 0.90f) * 0.65f;
+    mFlowDerivSmooth = flushDenormal(0.42f * rawDFlow + 0.58f * mFlowDerivSmooth);
+    const float dFlowNorm = 1.90f * std::tanh(mFlowDerivSmooth * 0.75f);
+
+    const float rawTransient = std::min(mImpactSlapAmp, 1.5f) * 0.24f + std::min(mOpeningTransientAmp, 1.5f) * 0.12f;
+    mTransientSmooth = flushDenormal(0.24f * rawTransient + 0.76f * mTransientSmooth);
+
+    // Continuous viscoelastic mucosal wall dipole compliance during closed contact phase
+    const float wallCompliance = 0.22f * std::tanh((mDisplacement / y0) * 1.45f) +
+                                 0.09f * std::tanh(velNorm * 0.85f);
+
+    const float rawWave = (normVolumeFlow * 0.48f)
+                        + (dFlowNorm * (0.33f + 0.09f * tension))
+                        + wallCompliance
+                        + mTransientSmooth;
+    const float acousticWave = std::tanh(rawWave * 0.90f) * 0.78f;
 
     outAirVelocity = mAirVelocity;
-    outAperture    = std::max(0.0f, mDisplacement);
+    outAperture    = posDisp;
     if (outAperture > mMeanAperture) {
         mMeanAperture += 0.15f * (outAperture - mMeanAperture);
     } else {

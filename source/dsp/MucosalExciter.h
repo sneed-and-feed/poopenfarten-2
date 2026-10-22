@@ -82,6 +82,8 @@ private:
     float mImpactSlapAmp      { 0.0f };
     float mPendingOpeningAmp  { 0.0f };
     float mPendingSlapAmp     { 0.0f };
+    float mFlowDerivSmooth    { 0.0f };
+    float mTransientSmooth    { 0.0f };
 
     // Buchla 292 optical vactrol sag state
     float mVactrolConductance { 0.0f };

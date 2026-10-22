@@ -24,6 +24,7 @@ void VoiceManager::reset() noexcept {
     }
     mNoteStackCount = 0;
     mClock = 0;
+    mHeadroomGain = 1.0f;
 }
 
 void VoiceManager::setVoicingMode(parameters::VoicingMode mode) noexcept {
@@ -235,9 +236,8 @@ void VoiceManager::noteOn(int midiNote, float velocity, float freqHz) noexcept {
             }
         }
 
-        // 3. All voices active: steal voice with de-click fade-out
+        // 3. All voices active: steal voice with smooth re-articulation modal damping
         const size_t stealIdx = findVoiceToSteal();
-        mVoices[stealIdx].killQuick();
         mVoices[stealIdx].noteOn(midiNote, velocity, freqHz);
         mVoices[stealIdx].setOnsetTime(mClock);
     } else if (mVoicingMode == parameters::VoicingMode::StereoUnison) {
@@ -327,31 +327,33 @@ void VoiceManager::processBlock(
         return;
     }
 
-    // Determine active voices
-    size_t activeCount = 0;
+    bool anyActive = false;
     for (const auto& v : mVoices) {
-        if (v.isActive()) ++activeCount;
+        if (v.isActive()) {
+            anyActive = true;
+            break;
+        }
     }
-
-    if (activeCount == 0) {
+    if (!anyActive) {
+        mHeadroomGain = 1.0f;
         return;
     }
 
-    // Headroom scaling for polyphonic sum
-    const float headroomScale = (activeCount > 1)
-        ? (1.0f / std::sqrt(static_cast<float>(activeCount)))
-        : 1.0f;
+    const bool isUnison = (mVoicingMode == parameters::VoicingMode::StereoUnison);
 
     for (int i = 0; i < numSamples; ++i) {
         float sumL = 0.0f;
         float sumR = 0.0f;
+        size_t activeCount = 0;
+        const bool unisonEnsembleActive = isUnison &&
+            (mVoices[1].isActive() || mVoices[2].isActive() || mVoices[3].isActive());
 
         for (size_t vIdx = 0; vIdx < kMaxVoices; ++vIdx) {
             auto& v = mVoices[vIdx];
             if (v.isActive()) {
                 float vL = 0.0f, vR = 0.0f;
                 v.processSample(vL, vR, externalPressureMod);
-                if (mVoicingMode == parameters::VoicingMode::StereoUnison && vIdx < 4) {
+                if (unisonEnsembleActive && vIdx < 4) {
                     const float pan = kUnisonPanOffsets[vIdx];
                     const float normPan = 0.5f * (pan + 1.0f);
                     const float gainL = std::cos(dsp::kHalfPi * normPan) * dsp::kSqrt2;
@@ -362,11 +364,17 @@ void VoiceManager::processBlock(
                     sumL += vL;
                     sumR += vR;
                 }
+                ++activeCount;
             }
         }
 
-        bufferL[i] += sumL * headroomScale;
-        bufferR[i] += sumR * headroomScale;
+        const float targetScale = (activeCount > 1)
+            ? (1.0f / std::sqrt(static_cast<float>(activeCount)))
+            : 1.0f;
+        mHeadroomGain += 0.008f * (targetScale - mHeadroomGain);
+
+        bufferL[i] += sumL * mHeadroomGain;
+        bufferR[i] += sumR * mHeadroomGain;
     }
 }
 

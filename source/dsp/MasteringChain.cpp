@@ -177,32 +177,27 @@ void MasteringChain::process(
         const float subDrive = (sigL + sigR) * 0.5f;
         const float subWave = mSubResonator.process(subDrive);
         const float subGain = dbToGain(params.visceralSubReinforceDb);
-        const float subSignal = subWave * subGain * 0.25f;
+        const float subSignal = subWave * subGain * 0.18f;
         sigL += subSignal;
         sigR += subSignal;
     }
 
-    // 4. Colonic Drive & Hermite C^1 Soft-Knee BoundedSaturator
+    // 4. Colonic Drive & C^1 Soft-Knee Asymptotic BoundedSaturator
     const float driveNorm = std::clamp(params.colonicSaturationDrive * 0.01f, 0.0f, 1.0f);
-    const float driveGain = 0.85f + 1.15f * driveNorm;
+    const float driveGain = 0.82f + 0.98f * driveNorm;
     sigL *= driveGain;
     sigR *= driveGain;
 
-    // Hermite C^1 Bounded Saturator (Knee = 0.72, Ceiling = 1.00)
+    // C^1 Soft-Knee Asymptotic Saturator (Knee = 0.72, Ceiling = 0.98) — never flat-tops
     auto hermiteSaturate = [](float x) noexcept -> float {
         if (!std::isfinite(x)) [[unlikely]] return 0.0f;
         const float absX = std::abs(x);
         constexpr float kKnee = 0.72f;
-        constexpr float kCeil = 1.00f;
-        constexpr float kInvDelta = 1.0f / (kCeil - kKnee);
+        constexpr float kSpan = 0.26f;
 
         if (absX <= kKnee) return x;
         const float sgn = (x > 0.0f) ? 1.0f : -1.0f;
-        if (absX >= kCeil) return sgn * kCeil;
-
-        const float u = (absX - kKnee) * kInvDelta;
-        const float poly = u * (1.0f + u * (1.0f - u));
-        return sgn * (kKnee + (kCeil - kKnee) * poly);
+        return sgn * (kKnee + kSpan * std::tanh((absX - kKnee) / kSpan));
     };
 
     sigL = hermiteSaturate(sigL);
@@ -213,9 +208,17 @@ void MasteringChain::process(
     sigL *= masterGain;
     sigR *= masterGain;
 
-    // 6. True-Peak Brickwall Limiter (strictly <= 1.05)
-    sigL = flushDenormal(std::clamp(sigL, -kPeakCeiling, kPeakCeiling));
-    sigR = flushDenormal(std::clamp(sigR, -kPeakCeiling, kPeakCeiling));
+    // 6. Post-Master Soft-Ceiling & Brickwall Protection (strictly < 0.99, never flat-tops)
+    auto softCeiling = [](float x) noexcept -> float {
+        if (!std::isfinite(x)) [[unlikely]] return 0.0f;
+        const float absX = std::abs(x);
+        if (absX <= 0.85f) return x;
+        const float sgn = (x > 0.0f) ? 1.0f : -1.0f;
+        return sgn * (0.85f + 0.14f * std::tanh((absX - 0.85f) / 0.14f));
+    };
+
+    sigL = flushDenormal(std::clamp(softCeiling(sigL), -kPeakCeiling, kPeakCeiling));
+    sigR = flushDenormal(std::clamp(softCeiling(sigR), -kPeakCeiling, kPeakCeiling));
 
     outL = sigL;
     outR = sigR;

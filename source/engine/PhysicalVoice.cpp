@@ -34,6 +34,13 @@ void PhysicalVoice::reset() noexcept {
     mEnvelope = 0.0f;
     mStealingFade = false;
     mStealFadeGain = 1.0f;
+    mBurstMode = BurstMode::None;
+    mBurstWasHeld = false;
+    mBurstSamplePos = 0;
+    mBurstDurationSamples = 0;
+    mBurstIntensity = 0.0f;
+    mBurstPhase = 0.0f;
+    mRetrigDampSamples = 0;
 
     mMucosalExciter.reset();
     mAeroFluidEngine.reset();
@@ -84,15 +91,21 @@ void PhysicalVoice::noteOn(int midiNote, float velocity, float freqHz) noexcept 
     }
 
     const bool wasHeldSameNote = mActive && (mGateState == GateState::NoteOn) && (mMidiNote == midiNote);
+    if (mActive && !wasHeldSameNote) {
+        // Smooth per-sample modal damping over ~1.8 ms on voice steal or re-articulation (no single-sample step jump)
+        mRetrigDampSamples = std::max(1, static_cast<int>(0.0018f * mSampleRate));
+    }
+
     mMidiNote = midiNote;
     mVelocity = std::clamp(velocity, 0.0f, 1.0f);
     mOnsetTime = 0; // Updated by VoiceManager timestamp
+    mBurstMode = BurstMode::None;
+    mBurstWasHeld = false;
+    mBurstSamplePos = 0;
+    mBurstDurationSamples = 0;
 
-    // Pitch assignment: snap immediately unless re-articulating the same held note
-    setTargetPitchMidi(static_cast<float>(midiNote), !wasHeldSameNote, freqHz);
-    if (!wasHeldSameNote && mActive) {
-        mModalMatrix.dampStates(0.25f);
-    }
+    // Immediate pitch assignment for inactive voice; fast smooth slew when re-articulating an active voice
+    setTargetPitchMidi(static_cast<float>(midiNote), !mActive, freqHz);
 
     // Initial mechanical excitation slap
     mMucosalExciter.triggerSlap(mVelocity, mMucosalParams.tissueHardness);
@@ -119,22 +132,79 @@ void PhysicalVoice::triggerKineticBurst(std::string_view burstType, float veloci
     const float safeVel = std::clamp(velocity, 0.1f, 1.0f);
     const bool wasHeld = isNoteHeld();
 
-    if (burstType == "impulse") {
-        mMucosalExciter.triggerSlap(safeVel, 2.8f);
-    } else if (burstType == "breakaway") {
-        mMucosalExciter.triggerSealBurst(safeVel * 2.0f);
-    } else if (burstType == "splatter") {
-        mAeroFluidEngine.triggerFlapBurst(safeVel, 0.9f, 30.0f);
-    } else if (burstType == "cavity") {
-        mMucosalExciter.triggerSealBurst(safeVel * 1.4f);
-    } else {
-        mMucosalExciter.triggerSlap(safeVel, 2.5f);
-    }
+    mBurstWasHeld = wasHeld;
+    mVelocity = std::max(mVelocity, safeVel);
+    mBurstIntensity = safeVel;
+    mBurstSamplePos = 0;
+    mBurstPhase = 0.0f;
+    mStealingFade = false;
+    mStealFadeGain = 1.0f;
 
     if (!wasHeld) {
-        noteOn(33, safeVel);
-        mEnvelope = std::max(mEnvelope, 0.95f * safeVel);
-        noteOff(0.0f);
+        if (mActive) {
+            mRetrigDampSamples = std::max(1, static_cast<int>(0.0015f * mSampleRate));
+        } else {
+            mModalMatrix.dampStates(0.0f);
+        }
+        mActive = true;
+        mGateState = GateState::Release;
+        mEnvelope = std::max(mEnvelope, 0.96f * safeVel);
+    }
+
+    if (burstType == "impulse" || burstType == "IMPULS-SCHLAG") {
+        // 1. IMPULS-SCHLAG: Deep Dirac/Hertzian sphincter impact thud (170 Hz -> 36.7 Hz fast pitch drop, 68 ms tight decay)
+        mBurstMode = BurstMode::Impulse;
+        mBurstDurationSamples = static_cast<int>(0.14f * mSampleRate);
+        if (!wasHeld) {
+            mMidiNote = 26;
+            setTargetPitchMidi(26.0f, true, 36.71f); // D1
+            mReleaseCoeff = std::exp(-1.0f / (0.068f * mSampleRate));
+        }
+        mMucosalExciter.triggerSlap(safeVel * 1.8f, 2.95f);
+    } else if (burstType == "breakaway" || burstType == "KARNOPP-ABRISS") {
+        // 2. KARNOPP-ABRISS: Violent 31 Hz stick-slip mucosal tear / fluttering raspberry rip (94 Hz -> 49 Hz, 195 ms decay)
+        mBurstMode = BurstMode::Breakaway;
+        mBurstDurationSamples = static_cast<int>(0.32f * mSampleRate);
+        if (!wasHeld) {
+            mMidiNote = 33;
+            setTargetPitchMidi(33.0f, true, 55.0f); // A1
+            mReleaseCoeff = std::exp(-1.0f / (0.195f * mSampleRate));
+        }
+        mMucosalExciter.triggerSealBurst(safeVel * 2.2f);
+    } else if (burstType == "splatter" || burstType == "MINNAERT-PLOPP") {
+        // 3. MINNAERT-PLOPP: Hydro-acoustic Minnaert bubble cluster & Poisson droplet cascade with upward pitch chirp
+        mBurstMode = BurstMode::Splatter;
+        mBurstDurationSamples = static_cast<int>(0.28f * mSampleRate);
+        if (!wasHeld) {
+            mMidiNote = 48;
+            setTargetPitchMidi(48.0f, true, 130.81f); // C3
+            mReleaseCoeff = std::exp(-1.0f / (0.165f * mSampleRate));
+        }
+        mAeroFluidEngine.triggerBubble(5.4f, safeVel * 0.95f, 1.00038f);
+        mAeroFluidEngine.triggerBubble(3.6f, safeVel * 0.90f, 1.00032f);
+        mAeroFluidEngine.triggerBubble(2.2f, safeVel * 0.85f, 1.00028f);
+        mAeroFluidEngine.triggerDroplet(safeVel * 0.95f);
+        mAeroFluidEngine.triggerDroplet(safeVel * 0.80f);
+    } else if (burstType == "cavity" || burstType == "JORDAN-RESONANZ") {
+        // 4. JORDAN-RESONANZ: Struck 2D Jordan-enclosure porcelain ceramic bowl resonance (146.8 Hz, high-Q ceramic ring, 360 ms decay)
+        mBurstMode = BurstMode::Cavity;
+        mBurstDurationSamples = static_cast<int>(0.55f * mSampleRate);
+        if (!wasHeld) {
+            mMidiNote = 50;
+            setTargetPitchMidi(50.0f, true, 146.83f); // D3
+            mReleaseCoeff = std::exp(-1.0f / (0.36f * mSampleRate));
+            mModalMatrix.exciteCavityField(1.5f, 0.85f, 3);
+        }
+        mMucosalExciter.triggerSlap(safeVel * 1.4f, 2.85f);
+    } else {
+        mBurstMode = BurstMode::Impulse;
+        mBurstDurationSamples = static_cast<int>(0.14f * mSampleRate);
+        if (!wasHeld) {
+            mMidiNote = 33;
+            setTargetPitchMidi(33.0f, true, 55.0f);
+            mReleaseCoeff = std::exp(-1.0f / (0.085f * mSampleRate));
+        }
+        mMucosalExciter.triggerSlap(safeVel, 2.8f);
     }
 }
 
@@ -148,7 +218,6 @@ void PhysicalVoice::noteOff(float velocity) noexcept {
 void PhysicalVoice::killQuick() noexcept {
     mStealingFade = true;
     mStealFadeGain = 1.0f;
-    mModalMatrix.dampStates(0.20f);
 }
 
 void PhysicalVoice::setLorenzModulation(
@@ -289,19 +358,201 @@ void PhysicalVoice::processSample(float& outL, float& outR, float externalPressu
         return;
     }
 
-    // 1. Portamento frequency slew
-    mCurrentFreqHz += mGlideCoeff * (mTargetFreqHz - mCurrentFreqHz);
+    // 1. Portamento frequency slew & smooth re-articulation modal damping
+    if (mRetrigDampSamples > 0) {
+        --mRetrigDampSamples;
+        mModalMatrix.dampStates(0.985f);
+        mCurrentFreqHz += std::max(mGlideCoeff, 0.18f) * (mTargetFreqHz - mCurrentFreqHz);
+    } else {
+        mCurrentFreqHz += mGlideCoeff * (mTargetFreqHz - mCurrentFreqHz);
+    }
     mCurrentFreqHz = dsp::flushDenormal(mCurrentFreqHz);
     mMucosalParams.frequencyHz = mCurrentFreqHz;
     mModalParams.fundamentalHz = mCurrentFreqHz;
 
     // 2. Compute dynamic colonic pressure drive
     auto localExciterParams = mMucosalParams;
+    auto localFluidParams = mFluidParams;
+    auto localModalParams = mModalParams;
     const float velocityScaling = 0.35f + 0.65f * mVelocity;
-    localExciterParams.colonicPressure = std::clamp(
+    const float baseFreq = mCurrentFreqHz;
+    const float basePressure = std::clamp(
         mMucosalParams.colonicPressure * velocityScaling + externalPressureMod,
         0.0f, 1.0f
     );
+    localExciterParams.colonicPressure = basePressure;
+
+    float burstModalInject = 0.0f;
+    float burstDirectL = 0.0f;
+    float burstDirectR = 0.0f;
+    float fluidMixBoost = 0.25f;
+    float standaloneAttackGain = 1.0f;
+
+    if (mBurstMode != BurstMode::None) {
+        const bool inActiveWindow = mBurstSamplePos < mBurstDurationSamples;
+        const int clampedPos = std::min(mBurstSamplePos, mBurstDurationSamples);
+        const float tSec = static_cast<float>(clampedPos) / mSampleRate;
+        const float bInt = mBurstIntensity;
+        const float attackDur = mBurstWasHeld ? 0.0030f : 0.0014f;
+        const float attackWin = 0.5f * (1.0f - std::cos(std::min(1.0f, tSec / attackDur) * dsp::kPi));
+        if (!mBurstWasHeld && inActiveWindow && tSec < attackDur) {
+            standaloneAttackGain = attackWin;
+        }
+
+        const float releaseStart = 0.72f * static_cast<float>(mBurstDurationSamples);
+        const float releaseWin = !inActiveWindow
+            ? 0.0f
+            : ((static_cast<float>(mBurstSamplePos) > releaseStart)
+                ? (0.5f * (1.0f + std::cos(dsp::kPi * (static_cast<float>(mBurstSamplePos) - releaseStart) / std::max(1.0f, static_cast<float>(mBurstDurationSamples) - releaseStart))))
+                : 1.0f);
+        const float burstWin = mBurstWasHeld ? (attackWin * releaseWin) : releaseWin;
+        const float paramBlend = mBurstWasHeld ? burstWin : 1.0f;
+
+        if (mBurstMode == BurstMode::Impulse) {
+            // 1. IMPULS-SCHLAG: Fast exponential pitch drop (172 Hz -> 36.7 Hz) + Hertzian impact shockwave
+            const float fSweep = 36.71f + 135.0f * std::exp(-tSec / 0.015f);
+            if (inActiveWindow) {
+                mBurstPhase += (dsp::kTwoPi * fSweep) / mSampleRate;
+                if (mBurstPhase >= dsp::kTwoPi) mBurstPhase -= dsp::kTwoPi;
+            }
+
+            const float subThud = std::sin(mBurstPhase) * attackWin * releaseWin * std::exp(-tSec / 0.036f) * bInt;
+            const float diracClick = std::sin(dsp::kTwoPi * 680.0f * tSec) * attackWin * releaseWin * std::exp(-tSec / 0.0024f) * bInt;
+
+            localExciterParams.frequencyHz = baseFreq + paramBlend * (fSweep - baseFreq);
+            localModalParams.fundamentalHz = baseFreq + paramBlend * (fSweep - baseFreq);
+            if (!mBurstWasHeld) {
+                localModalParams.manifold = dsp::GeometricManifold::SigmoidHorn;
+                localModalParams.damping = dsp::DampingProfile::StiffCartilage;
+            }
+            localExciterParams.tissueHardness = mMucosalParams.tissueHardness + paramBlend * (2.95f - mMucosalParams.tissueHardness);
+            const float bPress = 0.36f * std::exp(-tSec / 0.028f) * bInt;
+            localExciterParams.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+
+            burstModalInject = subThud * 0.95f + diracClick * 0.70f;
+            burstDirectL = subThud * 0.92f + diracClick * 0.28f;
+            burstDirectR = subThud * 0.92f + diracClick * 0.28f;
+            fluidMixBoost = 0.25f + burstWin * (0.04f - 0.25f);
+        } else if (mBurstMode == BurstMode::Breakaway) {
+            // 2. KARNOPP-ABRISS: Violent 31 Hz stick-slip friction flutter & mucosal raspberry tear
+            constexpr float flutterRate = 31.0f;
+            const int flutterCycleSamples = std::max(1, static_cast<int>(mSampleRate / flutterRate));
+            const float flutterPhase = std::fmod(tSec * flutterRate, 1.0f);
+
+            if (inActiveWindow && mBurstSamplePos > 0 && (mBurstSamplePos % flutterCycleSamples == 0) && tSec < 0.23f) {
+                mMucosalExciter.triggerSealBurst(bInt * 1.65f * releaseWin);
+            }
+
+            const float fTear = (52.0f + 42.0f * std::exp(-tSec / 0.16f)) * (0.84f + 0.32f * std::cos(dsp::kTwoPi * flutterPhase));
+            if (inActiveWindow) {
+                mBurstPhase += (dsp::kTwoPi * fTear) / mSampleRate;
+                if (mBurstPhase >= dsp::kTwoPi) mBurstPhase -= dsp::kTwoPi;
+            }
+
+            const float stickSlipGate = 0.54f + 0.46f * std::tanh(3.2f * std::sin(dsp::kTwoPi * flutterPhase));
+            const float rawHarmonics = std::sin(mBurstPhase) +
+                                       0.75f * std::sin(2.0f * mBurstPhase) +
+                                       0.50f * std::sin(3.0f * mBurstPhase) +
+                                       0.30f * std::sin(4.0f * mBurstPhase);
+            const float tearWave = std::tanh(1.65f * rawHarmonics) * stickSlipGate * attackWin * releaseWin * std::exp(-tSec / 0.21f) * bInt;
+
+            localExciterParams.frequencyHz = baseFreq + paramBlend * (fTear - baseFreq);
+            localModalParams.fundamentalHz = baseFreq + paramBlend * (fTear - baseFreq);
+            const float bPress = std::clamp(0.95f * stickSlipGate * bInt, 0.0f, 1.0f);
+            localExciterParams.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+            localExciterParams.karnoppStiction = mMucosalParams.karnoppStiction + paramBlend * (0.98f - mMucosalParams.karnoppStiction);
+            localExciterParams.stribeckBreakaway = mMucosalParams.stribeckBreakaway + paramBlend * (7.8f - mMucosalParams.stribeckBreakaway);
+            localExciterParams.mucosalTension = mMucosalParams.mucosalTension + paramBlend * (0.84f - mMucosalParams.mucosalTension);
+            localExciterParams.restingApertureMm = mMucosalParams.restingApertureMm + paramBlend * (0.35f - mMucosalParams.restingApertureMm);
+            if (!mBurstWasHeld) {
+                localModalParams.manifold = dsp::GeometricManifold::ChladniRing;
+                localModalParams.damping = dsp::DampingProfile::WetElastomer;
+            }
+            localModalParams.triadCouplingGain = mModalParams.triadCouplingGain + paramBlend * (1.55f - mModalParams.triadCouplingGain);
+
+            burstModalInject = tearWave * 0.95f;
+            burstDirectL = tearWave * 0.52f;
+            burstDirectR = -tearWave * 0.46f;
+        } else if (mBurstMode == BurstMode::Splatter) {
+            // 3. MINNAERT-PLOPP: Hydro-acoustic Minnaert bubble cascade & upward-chirping cavity plop
+            const int cascadeInterval = std::max(1, static_cast<int>(0.014f * mSampleRate));
+            if (inActiveWindow && mBurstSamplePos > 0 && (mBurstSamplePos % cascadeInterval == 0) && tSec < 0.20f) {
+                const int stepIdx = mBurstSamplePos / cascadeInterval;
+                const float rMm = 1.1f + 4.4f * (static_cast<float>((stepIdx * 5 + 3) % 11) / 10.0f);
+                mAeroFluidEngine.triggerBubble(rMm, bInt * 0.88f * releaseWin, 1.00036f);
+                mAeroFluidEngine.triggerDroplet(bInt * 0.65f * releaseWin);
+            }
+
+            const float chirpProgress = std::min(1.0f, tSec / 0.065f);
+            const float fPlop = 175.0f + 365.0f * (chirpProgress * chirpProgress);
+            if (inActiveWindow) {
+                mBurstPhase += (dsp::kTwoPi * fPlop) / mSampleRate;
+                if (mBurstPhase >= dsp::kTwoPi) mBurstPhase -= dsp::kTwoPi;
+            }
+
+            const float plopEnv = std::sin(std::min(1.0f, tSec / 0.004f) * dsp::kHalfPi) * releaseWin * std::exp(-tSec / 0.052f);
+            const float plopWave = std::sin(mBurstPhase) * plopEnv * bInt;
+
+            localExciterParams.frequencyHz = baseFreq + paramBlend * (fPlop - baseFreq);
+            localModalParams.fundamentalHz = baseFreq + paramBlend * (fPlop - baseFreq);
+            const float bPress = 0.08f * std::exp(-tSec / 0.030f);
+            localExciterParams.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+            localFluidParams.multiphaseMoisture = mFluidParams.multiphaseMoisture + paramBlend * (0.98f - mFluidParams.multiphaseMoisture);
+            if (!mBurstWasHeld) {
+                localModalParams.damping = dsp::DampingProfile::WetElastomer;
+                localModalParams.porcelainBoundaryMode = 2;
+            }
+            localModalParams.porcelainCavityMix = mModalParams.porcelainCavityMix + paramBlend * (65.0f - mModalParams.porcelainCavityMix);
+
+            burstModalInject = plopWave * 0.52f;
+            burstDirectL = plopWave * 0.38f;
+            burstDirectR = plopWave * 0.34f;
+            fluidMixBoost = 0.25f + burstWin * (0.88f - 0.25f);
+        } else if (mBurstMode == BurstMode::Cavity) {
+            // 4. JORDAN-RESONANZ: Struck 2D Jordan-enclosure porcelain ceramic bowl standing waves
+            constexpr float fBowl = 146.83f;
+            localExciterParams.frequencyHz = baseFreq + paramBlend * (fBowl - baseFreq);
+            localModalParams.fundamentalHz = baseFreq + paramBlend * (fBowl - baseFreq);
+            if (!mBurstWasHeld) {
+                localModalParams.manifold = dsp::GeometricManifold::PorcelainBowl;
+                localModalParams.damping = dsp::DampingProfile::BellBronze;
+                localModalParams.porcelainBoundaryMode = 3;
+            }
+            localModalParams.porcelainCavityMix = mModalParams.porcelainCavityMix + paramBlend * (100.0f - mModalParams.porcelainCavityMix);
+            localModalParams.householderCoupling = mModalParams.householderCoupling + paramBlend * (0.82f - mModalParams.householderCoupling);
+            localModalParams.triadCouplingGain = mModalParams.triadCouplingGain + paramBlend * (0.35f - mModalParams.triadCouplingGain);
+            const float bPress = (tSec < 0.008f) ? (0.45f * bInt) : 0.0f;
+            localExciterParams.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+
+            const float ceramicRingL = (
+                0.55f * std::sin(dsp::kTwoPi * 146.83f * tSec) * std::exp(-tSec / 0.26f) +
+                0.42f * std::sin(dsp::kTwoPi * 221.71f * tSec + 0.4f) * std::exp(-tSec / 0.22f) +
+                0.32f * std::sin(dsp::kTwoPi * 314.22f * tSec + 1.1f) * std::exp(-tSec / 0.18f) +
+                0.22f * std::sin(dsp::kTwoPi * 530.05f * tSec + 2.0f) * std::exp(-tSec / 0.14f)
+            ) * attackWin * releaseWin * bInt;
+            const float ceramicRingR = (
+                0.55f * std::sin(dsp::kTwoPi * 146.83f * tSec) * std::exp(-tSec / 0.26f) -
+                0.42f * std::sin(dsp::kTwoPi * 221.71f * tSec + 0.4f) * std::exp(-tSec / 0.22f) +
+                0.32f * std::sin(dsp::kTwoPi * 314.22f * tSec + 1.1f) * std::exp(-tSec / 0.18f) -
+                0.22f * std::sin(dsp::kTwoPi * 530.05f * tSec + 2.0f) * std::exp(-tSec / 0.14f)
+            ) * attackWin * releaseWin * bInt;
+
+            if (tSec < 0.018f) {
+                const float strikeEnv = attackWin * std::exp(-tSec / 0.0032f);
+                burstModalInject = ceramicRingL * strikeEnv * 1.35f;
+            }
+            burstDirectL = ceramicRingL * 0.44f;
+            burstDirectR = ceramicRingR * 0.44f;
+            fluidMixBoost = 0.25f + burstWin * (0.06f - 0.25f);
+        }
+
+        if (inActiveWindow) {
+            ++mBurstSamplePos;
+            if (mBurstSamplePos >= mBurstDurationSamples && mBurstWasHeld) {
+                mBurstMode = BurstMode::None;
+            }
+        }
+    }
 
     // 3. Process Mucosal Valve Excitation
     float airVelocity = 0.0f;
@@ -317,12 +568,12 @@ void PhysicalVoice::processSample(float& outL, float& outR, float externalPressu
         airVelocity,
         aperture,
         0.0f, // external zeno flux
-        mFluidParams
+        localFluidParams
     );
 
     // 5. Couple Excitation into 16-Pole Modal Resonator Matrix
-    const float totalExcitation = exciterSig + fluidSig;
-    mModalMatrix.processSample(totalExcitation, mModalParams, outL, outR);
+    const float totalExcitation = exciterSig + fluidSig + burstModalInject;
+    mModalMatrix.processSample(totalExcitation, localModalParams, outL, outR);
 
     // 6. Local Vactrol Envelope Gate Lifecycle
     if (mGateState == GateState::NoteOn) {
@@ -334,11 +585,13 @@ void PhysicalVoice::processSample(float& outL, float& outR, float externalPressu
             mEnvelope = 0.0f;
             mActive = false;
             mGateState = GateState::Off;
+            mBurstMode = BurstMode::None;
+            mBurstWasHeld = false;
         }
     }
 
-    outL *= mEnvelope;
-    outR *= mEnvelope;
+    outL = (outL + fluidSig * fluidMixBoost + burstDirectL) * mEnvelope * standaloneAttackGain;
+    outR = (outR + fluidSig * fluidMixBoost * 0.92f + burstDirectR) * mEnvelope * standaloneAttackGain;
 
     // 7. Steal De-Click Linear/Cosine Fade-Out
     if (mStealingFade) {

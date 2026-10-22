@@ -419,20 +419,50 @@ class PfApp {
       { id: 'btn-burst-jordan', name: 'JORDAN-RESONANZ', type: 'cavity' }
     ];
 
+    const fireBurst = (b, el) => {
+      if (el) el.classList.add('is-firing');
+      this._dispatchAudioEvent('kineticBurst', { burstType: b.type, velocity: 1.0 });
+      if (this.visualizer) {
+        this.visualizer.telemetry.dropletTriggered = true;
+        this.visualizer._spawnDropletBurst();
+      }
+    };
+
     bursts.forEach(b => {
       const el = document.getElementById(b.id);
       if (!el) return;
-      el.addEventListener('mousedown', () => {
-        el.classList.add('is-firing');
-        this._dispatchAudioEvent('kineticBurst', { burstType: b.type, velocity: 1.0 });
-        if (this.visualizer) {
-          this.visualizer.telemetry.dropletTriggered = true;
-          this.visualizer._spawnDropletBurst();
-        }
+      el.addEventListener('mousedown', (e) => {
+        if (e.button && e.button !== 0) return;
+        fireBurst(b, el);
       });
+      el.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        fireBurst(b, el);
+      }, { passive: false });
       el.addEventListener('mouseup', () => el.classList.remove('is-firing'));
       el.addEventListener('mouseleave', () => el.classList.remove('is-firing'));
+      el.addEventListener('touchend', () => el.classList.remove('is-firing'));
+      el.addEventListener('touchcancel', () => el.classList.remove('is-firing'));
     });
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('keydown', (e) => {
+        if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+        const tag = e.target && e.target.tagName ? e.target.tagName.toUpperCase() : '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+        if (e.code === 'Space' || e.key === ' ') {
+          e.preventDefault();
+          const el = document.getElementById('btn-burst-impulse');
+          fireBurst(bursts[0], el);
+        }
+      });
+      window.addEventListener('keyup', (e) => {
+        if (e.code === 'Space' || e.key === ' ') {
+          const el = document.getElementById('btn-burst-impulse');
+          if (el) el.classList.remove('is-firing');
+        }
+      });
+    }
   }
 
   // --- Theme Toggle & Master Power Switch ---

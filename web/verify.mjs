@@ -998,8 +998,222 @@ describe('Poopenfarten II (PF-02) Verification Suite', () => {
         assert.notStrictEqual(v.gateState, 'NoteOn', 'Switching voicing mode must release held notes');
       }
     });
+
+    it('verifies all 4 kinetic bursts produce acoustically & spectrally distinct signatures with low pairwise correlation', () => {
+      const sr = 48000.0;
+      const burstTypes = ['impulse', 'breakaway', 'splatter', 'cavity'];
+      const waves = {};
+      const stats = {};
+
+      for (const b of burstTypes) {
+        const engine = new Pf02DspEngine(sr);
+        engine.triggerKineticBurst(b, 1.0);
+        const { left, right } = engine.processBlock(24000); // 500 ms
+        waves[b] = left;
+
+        let peak = 0.0, sumSq = 0.0, zcr = 0, weightedPos = 0.0, clipped = 0;
+        for (let i = 0; i < left.length; i++) {
+          const a = Math.max(Math.abs(left[i]), Math.abs(right[i]));
+          if (a > peak) peak = a;
+          if (a >= 0.99) clipped++;
+          sumSq += left[i] * left[i];
+          weightedPos += i * (left[i] * left[i]);
+          if (i > 0 && ((left[i] >= 0 && left[i - 1] < 0) || (left[i] < 0 && left[i - 1] >= 0))) {
+            zcr++;
+          }
+        }
+        const rms = Math.sqrt(sumSq / left.length);
+        const centroidMs = (weightedPos / (sumSq + 1e-12)) / sr * 1000.0;
+        const zcrHz = (zcr / 2.0) / (left.length / sr);
+        stats[b] = { peak, rms, centroidMs, zcrHz };
+
+        assert.strictEqual(clipped, 0, `Kinetic burst ${b} clipped ${clipped} samples`);
+        assert.ok(peak > 0.25 && peak < 0.98, `Kinetic burst ${b} peak ${peak.toFixed(3)} out of balanced range`);
+      }
+
+      // Pairwise correlation between all 6 pairs of bursts must be low (< 0.25)
+      for (let i = 0; i < burstTypes.length; i++) {
+        for (let j = i + 1; j < burstTypes.length; j++) {
+          const a = waves[burstTypes[i]];
+          const b = waves[burstTypes[j]];
+          let dot = 0.0, na = 0.0, nb = 0.0;
+          for (let k = 0; k < a.length; k++) {
+            dot += a[k] * b[k];
+            na += a[k] * a[k];
+            nb += b[k] * b[k];
+          }
+          const corr = dot / (Math.sqrt(na * nb) + 1e-12);
+          assert.ok(
+            Math.abs(corr) < 0.25,
+            `Bursts ${burstTypes[i]} and ${burstTypes[j]} are too correlated (corr=${corr.toFixed(4)})`
+          );
+        }
+      }
+
+      // Verify distinct physical acoustic signatures:
+      assert.ok(stats.impulse.centroidMs < 25.0, `Impulse burst must be a fast sub-thud (<25ms centroid, got ${stats.impulse.centroidMs.toFixed(1)}ms)`);
+      assert.ok(stats.impulse.zcrHz < 200.0, `Impulse burst must be sub-bass dominated (<200Hz ZCR, got ${stats.impulse.zcrHz.toFixed(1)}Hz)`);
+      assert.ok(stats.splatter.zcrHz > 600.0, `Splatter burst must have high-frequency Minnaert bubble/droplet activity (>600Hz ZCR, got ${stats.splatter.zcrHz.toFixed(1)}Hz)`);
+      assert.ok(stats.cavity.centroidMs > 65.0, `Cavity burst must have long porcelain modal ring (>65ms centroid, got ${stats.cavity.centroidMs.toFixed(1)}ms)`);
+    });
+
+    it('verifies low-end bass notes and 4-note chords have zero clipping and smooth C1 derivatives across all 16 presets', () => {
+      for (const preset of FULL_FACTORY_PRESETS) {
+        const engine = new Pf02DspEngine(48000.0);
+        for (const [k, v] of Object.entries(preset.params)) {
+          engine.setParameter(k, v);
+        }
+        // Trigger 4-note low bass chord (C1, E1, G1, C2)
+        engine.noteOn(24, 1.0);
+        engine.noteOn(28, 1.0);
+        engine.noteOn(31, 1.0);
+        engine.noteOn(36, 1.0);
+        const { left, right } = engine.processBlock(8192);
+        let clipped = 0;
+        let maxD2x = 0.0;
+        for (let i = 0; i < left.length; i++) {
+          const a = Math.max(Math.abs(left[i]), Math.abs(right[i]));
+          if (a >= 0.99) clipped++;
+          if (i > 1) {
+            const d2x = Math.abs(left[i] - 2.0 * left[i - 1] + left[i - 2]);
+            if (d2x > maxD2x) maxD2x = d2x;
+          }
+        }
+        assert.strictEqual(clipped, 0, `Preset ${preset.id} clipped ${clipped} samples on 4-note low bass chord`);
+        assert.ok(maxD2x < 0.05, `Preset ${preset.id} had low-end impulse/kink spike maxD2x=${maxD2x.toFixed(4)}`);
+      }
+    });
+
+    it('verifies PfKnob rotary indicator angle and SVG arc sweep line up across all normalized positions', async () => {
+      const { PfKnob } = await import('./js/ui/knobs.js');
+      const css = fs.readFileSync(path.join(__dirname, 'css', 'style.css'), 'utf8');
+      assert.ok(css.includes('transform: rotate(130deg)'), 'Knob SVG scale must rotate by 130deg so s=0 aligns with -140deg indicator start');
+
+      const makeEl = () => ({
+        style: {},
+        textContent: '',
+        className: '',
+        dataset: {},
+        innerHTML: '',
+        setAttribute() {},
+        appendChild() {},
+        addEventListener() {},
+        querySelector() { return makeEl(); }
+      });
+
+      const capEl = makeEl();
+      const fillEl = makeEl();
+      const numEl = makeEl();
+      globalThis.document = {
+        addEventListener() {},
+        removeEventListener() {},
+        createElement() {
+          const el = makeEl();
+          el.querySelector = (sel) => {
+            if (sel === '.pf02-knob-cap') return capEl;
+            if (sel === '.pf02-knob-fill') return fillEl;
+            if (sel === '.pf02-knob-num') return numEl;
+            return makeEl();
+          };
+          return el;
+        }
+      };
+
+      const container = makeEl();
+      const knob = new PfKnob(container, { min: 0, max: 100, value: 0 });
+      const arcLength = 185.703;
+
+      for (const norm of [0, 0.25, 0.5, 0.75, 1.0]) {
+        knob.setValue(norm * 100, false);
+        assert.strictEqual(capEl.style.transform, `rotate(${-140 + norm * 280}deg)`);
+        const expectedOffset = (arcLength * (1 - norm)).toFixed(3);
+        assert.strictEqual(fillEl.style.strokeDashoffset, expectedOffset);
+        assert.strictEqual(fillEl.style.strokeDasharray, `${arcLength.toFixed(3)} 1000`);
+        assert.strictEqual(fillEl.style.opacity, norm === 0 ? '0' : '1');
+      }
+    });
+
+    it('verifies kinetic bursts have C1-smooth onset/release (no boundary spikes at sample 2 or burstDurationSamples) both standalone and over held low notes', () => {
+      const sr = 48000.0;
+      const burstTypes = ['impulse', 'breakaway', 'splatter', 'cavity'];
+
+      // 1. Standalone bursts across aggressive presets
+      for (const b of burstTypes) {
+        const engine = new Pf02DspEngine(sr);
+        engine.triggerKineticBurst(b, 1.0);
+        const { left, right } = engine.processBlock(32000);
+        let maxD2 = 0.0;
+        for (let i = 2; i < left.length; i++) {
+          const d2L = Math.abs(left[i] - 2.0 * left[i - 1] + left[i - 2]);
+          const d2R = Math.abs(right[i] - 2.0 * right[i - 1] + right[i - 2]);
+          maxD2 = Math.max(maxD2, d2L, d2R);
+        }
+        assert.ok(maxD2 < 0.06, `Standalone burst ${b} had C1 discontinuity spike maxD2=${maxD2.toFixed(4)}`);
+      }
+
+      // 2. Bursts triggered mid-note while holding a low bass note (A1 = MIDI 33)
+      for (const b of burstTypes) {
+        const engine = new Pf02DspEngine(sr);
+        engine.noteOn(33, 1.0);
+        engine.processBlock(4800); // 100 ms into sustained note
+        engine.triggerKineticBurst(b, 1.0);
+        const { left, right } = engine.processBlock(32000); // spans full burst + return to held note
+        let maxD2 = 0.0;
+        let clipped = 0;
+        let tailEnergy = 0.0;
+        for (let i = 2; i < left.length; i++) {
+          const a = Math.max(Math.abs(left[i]), Math.abs(right[i]));
+          if (a >= 0.99) clipped++;
+          const d2L = Math.abs(left[i] - 2.0 * left[i - 1] + left[i - 2]);
+          const d2R = Math.abs(right[i] - 2.0 * right[i - 1] + right[i - 2]);
+          maxD2 = Math.max(maxD2, d2L, d2R);
+          if (i >= 28000) tailEnergy += left[i] * left[i];
+        }
+        assert.strictEqual(clipped, 0, `Held-note burst ${b} clipped ${clipped} samples`);
+        assert.ok(maxD2 < 0.06, `Held-note burst ${b} had transition spike maxD2=${maxD2.toFixed(4)}`);
+        assert.ok(tailEnergy > 1e-4, `Held note died after burst ${b} completed`);
+      }
+    });
+
+    it('verifies standalone kinetic bursts remain centered in Stereo-Unisono voicing mode and param_zeno_unroll_override maps choices 0..4 to {4,1,4,8,16}', () => {
+      const sr = 48000.0;
+      const enginePoly = new Pf02DspEngine(sr);
+      enginePoly.setParameter('param_voicing_mode', 1); // Poly-8 (centered reference)
+      enginePoly.triggerKineticBurst('impulse', 1.0);
+      const polyOut = enginePoly.processBlock(8192);
+
+      const engine = new Pf02DspEngine(sr);
+      engine.setParameter('param_voicing_mode', 2); // Stereo-Unisono
+      engine.triggerKineticBurst('impulse', 1.0);
+      const { left, right } = engine.processBlock(8192);
+
+      let rmsL = 0.0, rmsR = 0.0, polyRmsL = 0.0, polyRmsR = 0.0;
+      for (let i = 0; i < left.length; i++) {
+        rmsL += left[i] * left[i];
+        rmsR += right[i] * right[i];
+        polyRmsL += polyOut.left[i] * polyOut.left[i];
+        polyRmsR += polyOut.right[i] * polyOut.right[i];
+      }
+      rmsL = Math.sqrt(rmsL / left.length);
+      rmsR = Math.sqrt(rmsR / right.length);
+      polyRmsL = Math.sqrt(polyRmsL / left.length);
+      polyRmsR = Math.sqrt(polyRmsR / right.length);
+
+      assert.ok(rmsL > 0.05 && rmsR > 0.05, `Expected non-silent stereo burst output, got rmsL=${rmsL}, rmsR=${rmsR}`);
+      assert.ok(Math.abs(rmsL - polyRmsL) < 1e-7 && Math.abs(rmsR - polyRmsR) < 1e-7,
+        `Stereo-Unisono standalone burst should match centered Poly-8 panning: unison=(${rmsL}, ${rmsR}) vs poly=(${polyRmsL}, ${polyRmsR})`);
+      assert.ok(rmsR / rmsL > 0.75 && rmsL / rmsR > 0.75,
+        `Standalone burst stereo balance out of bounds: rmsL=${rmsL}, rmsR=${rmsR}`);
+
+      const expectedUnroll = [4, 1, 4, 8, 16];
+      for (let idx = 0; idx < expectedUnroll.length; idx++) {
+        engine.setParameter('param_zeno_unroll_override', idx);
+        assert.strictEqual(
+          engine.voiceManager.voices[0].params.zenoUnrollK,
+          expectedUnroll[idx],
+          `param_zeno_unroll_override=${idx} mapped to wrong K`
+        );
+      }
+    });
   });
 });
-
-
-

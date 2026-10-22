@@ -91,6 +91,7 @@ public:
     void prepare(double sampleRate) noexcept;
     void reset() noexcept;
     void dampStates(float factor = 0.25f) noexcept;
+    void exciteCavityField(float cavityScale = 1.5f, float aspect = 0.85f, int boundaryMode = 3) noexcept;
 
     // Process a single audio sample:
     // takes wideband aeroacoustic exciter input and generates stereo panned output (outL, outR)

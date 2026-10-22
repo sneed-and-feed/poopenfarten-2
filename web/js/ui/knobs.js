@@ -201,13 +201,14 @@ export class PfKnob {
     }
 
     if (this.fillCircle) {
-      // 2 * pi * 38 = 238.76 total perimeter
-      const totalDash = 238.8;
-      const arcFraction = 280 / 360;
-      const arcLength = totalDash * arcFraction; // ~185.7
-      const offset = totalDash - (norm * arcLength);
-      this.fillCircle.style.strokeDasharray = `${arcLength} ${totalDash}`;
-      this.fillCircle.style.strokeDashoffset = `${offset}`;
+      // 2 * pi * 38 = 238.76104 total circumference; 280deg sweep = 185.70303
+      const totalDash = 2 * Math.PI * 38;
+      const arcFraction = this.angleRange / 360;
+      const arcLength = totalDash * arcFraction;
+      const offset = arcLength * (1 - norm);
+      this.fillCircle.style.strokeDasharray = `${arcLength.toFixed(3)} 1000`;
+      this.fillCircle.style.strokeDashoffset = `${offset.toFixed(3)}`;
+      this.fillCircle.style.opacity = norm <= 0.0005 ? '0' : '1';
     }
 
     if (this.numDisplay) {

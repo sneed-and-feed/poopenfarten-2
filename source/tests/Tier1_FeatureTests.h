@@ -246,8 +246,8 @@ inline void registerTier1Tests() {
         TEST_ASSERT_NEAR(minnaertFreq(2.0f), 0.5f * minnaertFreq(1.0f), 0.1f, "Frequency must halve when radius doubles");
 
         // Test 3: Valid physical radius bounds [0.5 mm, 4.0 mm] maps to [820 Hz, 6566 Hz]
-        float fMin = minnaertFreq(4.0f);
-        float fMax = minnaertFreq(0.5f);
+        const volatile float fMin = minnaertFreq(4.0f);
+        const volatile float fMax = minnaertFreq(0.5f);
         TEST_ASSERT(fMin >= 800.0f && fMin <= 850.0f, "Minnaert 4 mm radius must yield ~820 Hz");
         TEST_ASSERT(fMax >= 6500.0f && fMax <= 6600.0f, "Minnaert 0.5 mm radius must yield ~6566 Hz");
 

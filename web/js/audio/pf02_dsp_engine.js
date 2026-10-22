@@ -260,6 +260,8 @@ export class MucosalExciter {
     this.impactSlapAmp = 0.0;
     this.pendingOpeningAmp = 0.0;
     this.pendingSlapAmp = 0.0;
+    this.flowDerivSmooth = 0.0;
+    this.transientSmooth = 0.0;
     this.vactrolConductance = 0.0;
     this.baseSeed = 0x504F4F50454E32n;
   }
@@ -292,6 +294,8 @@ export class MucosalExciter {
     this.impactSlapAmp = 0.0;
     this.pendingOpeningAmp = 0.0;
     this.pendingSlapAmp = 0.0;
+    this.flowDerivSmooth = 0.0;
+    this.transientSmooth = 0.0;
     this.vactrolConductance = 0.0;
     this.dcBlocker.reset();
   }
@@ -300,25 +304,28 @@ export class MucosalExciter {
     this.stuck = false;
     this.justOpened = true;
     const burstAmp = clamp(burstIntensity, 0.1, 10.0) * 1.45;
-    this.openingTransientAmp = burstAmp;
+    this.openingTransientAmp = Math.max(this.openingTransientAmp, burstAmp);
     this.pendingOpeningAmp = Math.max(this.pendingOpeningAmp, burstAmp);
   }
 
   triggerSlap(vel, hardness = 2.1) {
     const normHardness = clamp(hardness, 1.2, 3.0);
     const slapAmp = clamp(Math.abs(vel), 0.05, 4.0) * 0.35 * Math.pow(normHardness / 2.1, 1.2);
-    this.impactSlapAmp = slapAmp;
+    this.impactSlapAmp = Math.max(this.impactSlapAmp, slapAmp);
     this.pendingSlapAmp = Math.max(this.pendingSlapAmp, slapAmp);
   }
 
   processSample(params) {
-    this.justOpened = this.pendingOpeningAmp > 0.0;
-    this.openingTransientAmp = this.pendingOpeningAmp;
-    this.impactSlapAmp = this.pendingSlapAmp;
+    const dt = 1.0 / this.sampleRate;
+    const mechOpening = this.pendingOpeningAmp;
+    const mechSlap = this.pendingSlapAmp;
+    this.justOpened = mechOpening > 0.0;
     this.pendingOpeningAmp = 0.0;
     this.pendingSlapAmp = 0.0;
 
-    const dt = 1.0 / this.sampleRate;
+    const transDecay = Math.exp(-dt / 0.0018);
+    this.openingTransientAmp = flushDenormal(Math.max(this.openingTransientAmp * transDecay, mechOpening));
+    this.impactSlapAmp = flushDenormal(Math.max(this.impactSlapAmp * transDecay, mechSlap));
 
     // 1. Buchla 292 Optical Vactrol Dynamic Sag Droop
     const uDrive = clamp(params.colonicPressure ?? 0.70, 0.0, 1.0);
@@ -338,7 +345,7 @@ export class MucosalExciter {
 
     const pDrive = Math.pow(this.vactrolConductance, 1.8) * 2200.0; // Up to 2200 Pa
 
-    if (pDrive < 1.0e-3 && this.openingTransientAmp <= 0.0 && this.impactSlapAmp <= 0.0) {
+    if (pDrive < 1.0e-3 && this.openingTransientAmp <= 1.0e-4 && this.impactSlapAmp <= 1.0e-4) {
       this.displacement = 0.0;
       this.meanAperture *= 0.995;
       this.velocity = 0.0;
@@ -346,6 +353,8 @@ export class MucosalExciter {
       this.airVelocity = 0.0;
       this.upstreamPressure = 0.0;
       this.prevVolumeFlow = 0.0;
+      this.flowDerivSmooth = 0.0;
+      this.transientSmooth = 0.0;
       this.stuck = true;
       this.wasInContact = false;
       return this.dcBlocker.process(0.0);
@@ -365,12 +374,12 @@ export class MucosalExciter {
     const vScale = Math.max(1.0e-5, Math.sqrt(kSpring / mEff) * y0);
 
     // Apply scale-invariant pending kinetic impulses relative to vScale and y0
-    if (this.openingTransientAmp > 0.0) {
-      this.velocity = Math.max(this.velocity, Math.min(2.2, this.openingTransientAmp) * vScale);
+    if (mechOpening > 0.0) {
+      this.velocity = Math.max(this.velocity, Math.min(2.2, mechOpening) * vScale);
       this.displacement = Math.max(this.displacement, 0.12 * y0);
       this.meanAperture = Math.max(this.meanAperture, this.displacement);
-    } else if (this.impactSlapAmp > 0.0) {
-      this.velocity = Math.min(this.velocity, -Math.min(1.6, this.impactSlapAmp * 1.8) * vScale);
+    } else if (mechSlap > 0.0) {
+      this.velocity = Math.min(this.velocity, -Math.min(1.6, mechSlap * 1.8) * vScale);
     }
 
     // 3. Upstream Reservoir Pressure Accumulation & Subglottal/Colonic Compliance Venting
@@ -459,7 +468,11 @@ export class MucosalExciter {
       fImpact = fScale * Math.max(0.0, 14.0 * xPow * (1.0 + 0.45 * (1.0 - restitution) * vPenNorm));
 
       if (!this.wasInContact && this.velocity < -0.15 * vScale) {
-        this.impactSlapAmp = Math.max(this.impactSlapAmp, clamp(-this.velocity / (vScale + 1.0e-6), 0.0, 1.5) * 0.35);
+        const lowFreqScale = clamp((fEff - 35.0) / 140.0, 0.06, 0.55);
+        this.impactSlapAmp = Math.max(
+          this.impactSlapAmp,
+          clamp(-this.velocity / (vScale + 1.0e-6), 0.0, 1.2) * 0.22 * lowFreqScale
+        );
       }
       this.wasInContact = true;
     } else {
@@ -479,22 +492,36 @@ export class MucosalExciter {
     const posDisp = Math.max(0.0, this.displacement);
     this.meanAperture = flushDenormal(0.992 * this.meanAperture + 0.008 * posDisp);
 
-    // 9. Acoustic Output Signal (Glottal-Colonic Flow Derivative + Pulse + Slap/Breakaway Transients)
-    const newArea = posDisp * kSlitWidthW;
-    const newVolumeFlow = newArea * this.airVelocity;
+    // 9. Acoustic Output Signal (C1-Smooth Glottal-Colonic Flow + Viscoelastic Wall Compliance)
+    // C1-smooth aperture rectification at y = 0 eliminates slope-discontinuity clicks on low bass notes
+    const smoothPosDisp = (posDisp * posDisp) / (posDisp + 0.06 * y0 + 1.0e-9);
+    const smoothOpenRatio = smoothPosDisp / y0;
+    const smoothAirVel = (!this.stuck && smoothPosDisp > 1.0e-7 && this.upstreamPressure > 0.0)
+      ? Math.sqrt(2.0 * this.upstreamPressure / kAirDensityRho) * (smoothOpenRatio / (0.24 + smoothOpenRatio))
+      : 0.0;
+
+    const newArea = smoothPosDisp * kSlitWidthW;
+    const newVolumeFlow = newArea * smoothAirVel;
     const refFlow = kSlitWidthW * y0 * 35.0 + 1.0e-9;
-    const dFlowNorm = clamp(
-      ((newVolumeFlow - this.prevVolumeFlow) / refFlow) * (this.sampleRate / (0.55 * omega0 + 40.0)),
-      -2.2, 2.2
-    );
+    const rawDFlow = ((newVolumeFlow - this.prevVolumeFlow) / refFlow) * (this.sampleRate / (0.55 * omega0 + 48.0));
     this.prevVolumeFlow = newVolumeFlow;
 
-    const glottalPulse = clamp((posDisp / y0) * (this.airVelocity / 42.0) - 0.30, -0.9, 1.4) * (0.24 + 0.06 * tension);
-    const rawWave = dFlowNorm * (0.28 + 0.08 * tension) +
+    this.flowDerivSmooth = flushDenormal(0.42 * rawDFlow + 0.58 * this.flowDerivSmooth);
+    const dFlowNorm = 1.90 * Math.tanh(this.flowDerivSmooth * 0.75);
+
+    const rawTransient = this.impactSlapAmp * 0.24 + Math.min(1.5, this.openingTransientAmp) * 0.12;
+    this.transientSmooth = flushDenormal(0.24 * rawTransient + 0.76 * this.transientSmooth);
+
+    // Continuous viscoelastic mucosal wall dipole compliance during closed contact phase
+    const wallCompliance = 0.22 * Math.tanh((this.displacement / y0) * 1.45) +
+                           0.09 * Math.tanh(velNorm * 0.85);
+
+    const glottalPulse = Math.tanh((smoothPosDisp / y0) * (smoothAirVel / 38.0) - 0.26) * (0.34 + 0.08 * tension);
+    const rawWave = dFlowNorm * (0.33 + 0.09 * tension) +
                     glottalPulse +
-                    this.impactSlapAmp * 0.25 +
-                    Math.min(1.5, this.openingTransientAmp) * 0.10;
-    const acousticWave = Math.tanh(rawWave * 0.90) * 0.72;
+                    wallCompliance +
+                    this.transientSmooth;
+    const acousticWave = Math.tanh(rawWave * 0.90) * 0.78;
     return this.dcBlocker.process(acousticWave);
   }
 }
@@ -522,7 +549,9 @@ export class AeroFluidEngine {
       active: false,
       phase: 0.0,
       phaseInc: 0.0,
+      chirp: 1.00016,
       envelope: 0.0,
+      attackGain: 0.0,
       decayRate: 0.98,
       frequencyHz: 1500.0
     }));
@@ -578,7 +607,7 @@ export class AeroFluidEngine {
     this.prng.setSeed(this.baseSeed);
     this.viscosityFilter.reset();
     this.gurgleFilter.reset();
-    this.gurgleFilter.setCutoff(this.sampleRate, 850.0);
+    this.gurgleFilter.setCutoff(this.sampleRate, 1450.0);
     this.reset();
   }
 
@@ -591,7 +620,9 @@ export class AeroFluidEngine {
     this.vortexWhistleLevel = 0.0;
     for (const v of this.bubbleVoices) {
       v.active = false;
+      v.phase = 0.0;
       v.envelope = 0.0;
+      v.attackGain = 0.0;
     }
     this.bubbleSpawnCountdown = 200;
     this.bubbleActivity = 0.0;
@@ -606,9 +637,9 @@ export class AeroFluidEngine {
     this.euclideanStepTriggered = false;
   }
 
-  triggerBubble(radiusMm, intensity) {
-    const rClamped = clamp(radiusMm, 0.5, 4.0) * 0.001;
-    const freq = clamp(3.28325 / rClamped, 650.0, 6566.0);
+  triggerBubble(radiusMm, intensity, chirpRate = 1.00018) {
+    const rClamped = clamp(radiusMm, 0.5, 6.5) * 0.001;
+    const freq = clamp(3.28325 / rClamped, 380.0, 6566.0);
     const safeFreq = Math.min(freq, this.sampleRate * 0.48);
 
     let bestIdx = 0;
@@ -625,18 +656,25 @@ export class AeroFluidEngine {
     }
 
     const v = this.bubbleVoices[bestIdx];
+    const wasActive = v.active;
     v.active = true;
     v.frequencyHz = safeFreq;
-    v.phase = this.prng.nextFloat() * kTwoPi;
+    if (!wasActive) {
+      v.phase = 0.0;
+      v.attackGain = 0.0;
+    } else {
+      v.attackGain = Math.min(v.attackGain, 0.25);
+    }
     v.phaseInc = safeFreq * (kTwoPi / this.sampleRate);
+    v.chirp = clamp(chirpRate, 1.0, 1.001);
     v.envelope = clamp(intensity, 0.01, 1.0);
-    const decayTimeSec = 0.012 + 0.018 * (rClamped * 1000.0 / 4.0);
+    const decayTimeSec = 0.014 + 0.022 * (rClamped * 1000.0 / 4.0);
     v.decayRate = Math.exp(-1.0 / (decayTimeSec * this.sampleRate));
   }
 
   triggerDroplet(intensity) {
     const mass = this.prng.nextIrwinHall();
-    const popFreq = 1200.0 + mass * 3600.0;
+    const popFreq = 900.0 + mass * 3200.0;
     const popQ    = 7.0 + mass * 12.0;
 
     const filter = this.dropletFilters[this.dropletFilterIdx];
@@ -744,8 +782,8 @@ export class AeroFluidEngine {
 
     let dropletSignal = 0.0;
     for (let i = 0; i < 4; ++i) {
-      const impulse = this.dropletImpulses[i];
-      this.dropletImpulses[i] = 0.0;
+      const impulse = this.dropletImpulses[i] * 0.35;
+      this.dropletImpulses[i] = flushDenormal(this.dropletImpulses[i] * 0.65);
       dropletSignal += this.dropletFilters[i].process(impulse);
     }
 
@@ -765,17 +803,21 @@ export class AeroFluidEngine {
 
     let bubbleSum = 0.0;
     let currentBubbleActivity = 0.0;
+    const maxPhaseInc = 0.45 * kTwoPi;
     for (const v of this.bubbleVoices) {
       if (!v.active) continue;
-      const val = v.envelope * FastSinTable.sin(v.phase);
+      v.attackGain += 0.14 * (1.0 - v.attackGain);
+      const val = v.envelope * v.attackGain * FastSinTable.sin(v.phase);
       bubbleSum += val;
       currentBubbleActivity += v.envelope;
       v.phase += v.phaseInc;
       if (v.phase >= kTwoPi) v.phase -= kTwoPi;
+      v.phaseInc = Math.min(maxPhaseInc, v.phaseInc * (v.chirp ?? 1.00016));
       v.envelope *= v.decayRate;
       if (v.envelope < 1.0e-4) {
         v.active = false;
         v.envelope = 0.0;
+        v.attackGain = 0.0;
       }
     }
     this.bubbleActivity = flushDenormal(currentBubbleActivity * (1.0 / 16.0));
@@ -804,6 +846,7 @@ export class SkewSymmetricTriadOperator {
     );
     this.skewWeights = new Float32Array(Cu * M * M);
     this.lieMatrixFlat = new Float32Array(M * M);
+    this.targetLieMatrixFlat = new Float32Array(M * M);
     this.evalOut = new Float32Array(M);
     this.initDefaultWeights();
   }
@@ -1228,6 +1271,8 @@ export class ModalResonatorMatrix {
     this.modalEnergies.fill(0.0);
     this.slowState.fill(0.0);
     this.triadEnergyFlow.fill(0.0);
+    this.triadOp.lieMatrixFlat.fill(0.0);
+    this.triadOp.targetLieMatrixFlat.fill(0.0);
     this.lorenzFreqMult.fill(1.0);
     this.lorenzQSpread = 1.0;
     this.lorenzPanOffset = 0.0;
@@ -1311,7 +1356,8 @@ export class ModalResonatorMatrix {
       // Normalize SVF bandpass by k * sqrt(8.0 + 1.8 * Q) with high-Q energy compensation
       // so both peak resonant gain and broadband RMS remain balanced across Q in [1.5, 400]
       const highQComp = Math.pow(Math.max(1.0, qMode / 18.0), 0.38);
-      this.qNorm[i] = k * Math.sqrt(8.0 + 1.8 * qMode) * highQComp;
+      const bassHeadroom = (i === 0 && fClamped < 95.0) ? (0.68 + 0.32 * (fClamped / 95.0)) : 1.0;
+      this.qNorm[i] = k * Math.sqrt(8.0 + 1.8 * qMode) * highQComp * bassHeadroom;
 
       // Golden Ratio Panning law
       const angle = (i * kGoldenAngleRad + this.lorenzPanOffset) % kTwoPi;
@@ -1362,11 +1408,11 @@ export class ModalResonatorMatrix {
       const vBp = this.g[i] * vHp + this.s1[i];
       const vLp = this.g[i] * vBp + this.s2[i];
 
-      const vSq = vBp * vBp;
-      const radDamp = 1.0 / (1.0 + 0.03 * vSq);
+      const vSq = vBp * vBp + vLp * vLp;
+      const radDamp = 1.0 / (1.0 + 0.035 * vSq);
 
       let nextS1 = (2.0 * vBp - this.s1[i]) * radDamp;
-      let nextS2 = 2.0 * vLp - this.s2[i];
+      let nextS2 = (2.0 * vLp - this.s2[i]) * radDamp;
 
       if (Math.abs(nextS1) > 4.0) {
         const sgn = nextS1 > 0 ? 1.0 : -1.0;
@@ -1396,7 +1442,7 @@ export class ModalResonatorMatrix {
 
     // 4. DarkSnail Skew-Symmetric Triad & SlowFastTriadCascade in so(16)
     for (let i = 0; i < 16; ++i) {
-      this.slowState[i] = flushDenormal(0.995 * this.slowState[i] + 0.005 * modeOutputs[i]);
+      this.slowState[i] = flushDenormal(0.9985 * this.slowState[i] + 0.0015 * modeOutputs[i]);
     }
 
     this.triadCascade.cascadeGain = params.triadCouplingGain ?? 0.85;
@@ -1405,10 +1451,21 @@ export class ModalResonatorMatrix {
     const coupledModes = this.coupledModesBuf;
     if ((params.triadCouplingGain ?? 0.85) > 0.001) {
       if (controlTick) {
-        this.triadOp.contractFlat(this.slowState, this.triadOp.lieMatrixFlat);
+        this.triadOp.contractFlat(this.slowState, this.triadOp.targetLieMatrixFlat);
+      }
+      const lieCur = this.triadOp.lieMatrixFlat;
+      const lieTarget = this.triadOp.targetLieMatrixFlat;
+      for (let j = 0; j < 16; ++j) {
+        lieCur[j * 16 + j] = 0.0;
+        for (let k = j + 1; k < 16; ++k) {
+          const idx = j * 16 + k;
+          const v = flushDenormal(lieCur[idx] + 0.125 * (lieTarget[idx] - lieCur[idx]));
+          lieCur[idx] = v;
+          lieCur[k * 16 + j] = -v;
+        }
       }
       const cascadeOut = this.triadCascade.processCascadeFast(
-        this.triadOp.lieMatrixFlat,
+        lieCur,
         modeOutputs,
         this.triadOp,
         params.zenoUnrollK ?? 4
@@ -1638,9 +1695,9 @@ export class MasteringChain {
     this.dcBlockL = makeTpt15Hz();
     this.dcBlockR = makeTpt15Hz();
 
-    // 38 Hz Visceral Sub Resonator
+    // 38 Hz Visceral Sub Resonator (damped k=0.90 to prevent low-end resonant overload)
     this.subResonator = {
-      a1: 1.0, g: 0.002, k: 0.50, s1: 0.0, s2: 0.0,
+      a1: 1.0, g: 0.002, k: 0.90, s1: 0.0, s2: 0.0,
       prepare(fs) {
         this.g = Math.tan(kPi * (38.0 / fs));
         this.a1 = 1.0 / (1.0 + this.g * (this.g + this.k));
@@ -1653,7 +1710,7 @@ export class MasteringChain {
         const vLp = this.g * vBp + this.s2;
         this.s1 = flushDenormal(2.0 * vBp - this.s1);
         this.s2 = flushDenormal(2.0 * vLp - this.s2);
-        return flushDenormal(vLp + vBp * 0.5);
+        return flushDenormal(vLp + vBp * 0.35);
       }
     };
 
@@ -1800,14 +1857,14 @@ export class MasteringChain {
     const subDb = params.visceralSubReinforceDb ?? 0.0;
     if (subDb > -35.0) {
       const subDrive = (sigL + sigR) * 0.5;
-      const subWave = this.subResonator.process(subDrive);
+      const subWave = Math.tanh(this.subResonator.process(subDrive) * 0.85);
       const subGain = dbToGain(subDb);
-      const subSignal = subWave * subGain * 0.25;
+      const subSignal = subWave * subGain * 0.18;
       sigL += subSignal;
       sigR += subSignal;
     }
 
-    // 4. Colonic Saturation Drive & Hermite C1 Soft-Knee BoundedSaturator
+    // 4. Colonic Saturation Drive & C1 Soft-Knee Asymptotic Saturator (never flat-tops)
     const driveGain = 0.85 + 1.15 * clamp((params.colonicSaturationDrive ?? 30.0) * 0.01, 0.0, 1.0);
     sigL *= driveGain;
     sigR *= driveGain;
@@ -1816,26 +1873,30 @@ export class MasteringChain {
       if (!Number.isFinite(x)) return 0.0;
       const absX = Math.abs(x);
       const k = 0.72;
-      const C = 1.00;
+      const C = 0.98;
       if (absX <= k) return x;
       const sgn = x > 0 ? 1.0 : -1.0;
-      if (absX >= C) return sgn * C;
-      const u = (absX - k) / (C - k);
-      const poly = u * (1.0 + u * (1.0 - u));
-      return sgn * (k + (C - k) * poly);
+      return sgn * (k + (C - k) * Math.tanh((absX - k) / (C - k)));
     };
 
     sigL = hermiteSaturate(sigL);
     sigR = hermiteSaturate(sigR);
 
-    // 5. Master Output Trim
+    // 5. Master Output Trim & C1 Soft-Ceiling Limiter (< 0.99 DAC headroom, <= 1.05)
     const masterGain = dbToGain(params.masterVolumeDb ?? 0.0);
     sigL *= masterGain;
     sigR *= masterGain;
 
-    // 6. True-Peak Brickwall Limiter (<= 1.05)
-    sigL = flushDenormal(clamp(sigL, -1.05, 1.05));
-    sigR = flushDenormal(clamp(sigR, -1.05, 1.05));
+    const softCeiling = (x) => {
+      if (!Number.isFinite(x)) return 0.0;
+      const ax = Math.abs(x);
+      if (ax <= 0.85) return x;
+      const sgn = x > 0 ? 1.0 : -1.0;
+      return sgn * (0.85 + 0.14 * Math.tanh((ax - 0.85) / 0.14));
+    };
+
+    sigL = flushDenormal(clamp(softCeiling(sigL), -1.05, 1.05));
+    sigR = flushDenormal(clamp(softCeiling(sigR), -1.05, 1.05));
 
     // Telemetry ballistics
     const samplePeak = Math.max(Math.abs(sigL), Math.abs(sigR));
@@ -1876,6 +1937,15 @@ export class PhysicalVoice {
     this.stealFadeGain = 1.0;
     this.stealFadeStep = 0.005;
 
+    // Kinetic Burst physical profile state
+    this.burstMode = null;
+    this.burstWasHeld = false;
+    this.burstSamplePos = 0;
+    this.burstDurationSamples = 0;
+    this.burstIntensity = 0.0;
+    this.burstPhase = 0.0;
+    this.retrigDampSamples = 0;
+
     this.mucosalExciter = new MucosalExciter();
     this.aeroFluidEngine = new AeroFluidEngine();
     this.modalMatrix = new ModalResonatorMatrix();
@@ -1912,6 +1982,13 @@ export class PhysicalVoice {
     this.envelope = 0.0;
     this.stealingFade = false;
     this.stealFadeGain = 1.0;
+    this.burstMode = null;
+    this.burstWasHeld = false;
+    this.burstSamplePos = 0;
+    this.burstDurationSamples = 0;
+    this.burstIntensity = 0.0;
+    this.burstPhase = 0.0;
+    this.retrigDampSamples = 0;
     this.mucosalExciter.reset();
     this.aeroFluidEngine.reset();
     this.modalMatrix.reset();
@@ -1946,20 +2023,20 @@ export class PhysicalVoice {
       return;
     }
 
+    this.burstMode = null;
+    this.burstWasHeld = false;
+    this.burstSamplePos = 0;
+    this.burstDurationSamples = 0;
+
     const wasHeldSameNote = this.active && this.gateState === 'NoteOn' && this.midiNote === midiNote;
     if (this.active && !wasHeldSameNote) {
-      // Softly damp previous modal states on voice steal or re-articulation from another pitch to prevent click
-      for (let i = 0; i < 16; ++i) {
-        this.modalMatrix.s1[i] *= 0.35;
-        this.modalMatrix.s2[i] *= 0.35;
-      }
-      this.envelope = Math.min(this.envelope, 0.35);
+      // Smooth per-sample modal damping over ~1.8 ms on voice steal or re-articulation (no single-sample step jump)
+      this.retrigDampSamples = Math.max(1, Math.floor(0.0018 * this.sampleRate));
     }
 
     this.midiNote = midiNote;
     this.velocity = clamp(velocity, 0.0, 1.0);
-    // Immediate pitch assignment for new/stolen/released note onsets
-    this.setTargetPitchMidi(midiNote, !wasHeldSameNote, freqHz);
+    this.setTargetPitchMidi(midiNote, !this.active, freqHz);
 
     this.mucosalExciter.triggerSlap(this.velocity, this.params.tissueHardness ?? 2.1);
     if (this.velocity > 0.60) {
@@ -1977,6 +2054,89 @@ export class PhysicalVoice {
     this.stealFadeGain = 1.0;
   }
 
+  triggerKineticBurst(burstType, velocity = 1.0) {
+    const vel = clamp(velocity ?? 1.0, 0.1, 1.0);
+    const wasHeld = this.active && this.gateState === 'NoteOn';
+    this.burstWasHeld = wasHeld;
+    this.velocity = Math.max(this.velocity, vel);
+    this.burstSamplePos = 0;
+    this.burstIntensity = vel;
+    this.burstPhase = 0.0;
+    this.stealingFade = false;
+    this.stealFadeGain = 1.0;
+
+    if (!wasHeld) {
+      if (this.active) {
+        this.retrigDampSamples = Math.max(1, Math.floor(0.0015 * this.sampleRate));
+      } else {
+        this.modalMatrix.s1.fill(0.0);
+        this.modalMatrix.s2.fill(0.0);
+      }
+      this.active = true;
+      this.gateState = 'Release';
+      this.envelope = Math.max(this.envelope, 0.96 * vel);
+    }
+
+    if (burstType === 'impulse' || burstType === 'IMPULS-SCHLAG') {
+      // 1. IMPULS-SCHLAG: Deep Dirac/Hertzian sphincter impact thud (170 Hz -> 36.7 Hz fast pitch drop, 68 ms tight decay)
+      this.burstMode = 'impulse';
+      this.burstDurationSamples = Math.floor(0.14 * this.sampleRate);
+      if (!wasHeld) {
+        this.midiNote = 26;
+        this.setTargetPitchMidi(26, true, 36.71);
+        this.releaseCoeff = Math.exp(-1.0 / (0.068 * this.sampleRate));
+      }
+      this.mucosalExciter.triggerSlap(vel * 1.8, 2.95);
+    } else if (burstType === 'breakaway' || burstType === 'KARNOPP-ABRISS') {
+      // 2. KARNOPP-ABRISS: Violent 31 Hz stick-slip mucosal tear / fluttering raspberry rip (94 Hz -> 49 Hz, 195 ms decay)
+      this.burstMode = 'breakaway';
+      this.burstDurationSamples = Math.floor(0.32 * this.sampleRate);
+      if (!wasHeld) {
+        this.midiNote = 33;
+        this.setTargetPitchMidi(33, true, 55.0);
+        this.releaseCoeff = Math.exp(-1.0 / (0.195 * this.sampleRate));
+      }
+      this.mucosalExciter.triggerSealBurst(vel * 2.2);
+    } else if (burstType === 'splatter' || burstType === 'MINNAERT-PLOPP') {
+      // 3. MINNAERT-PLOPP: Hydro-acoustic Minnaert bubble cluster & Poisson droplet cascade with upward pitch chirp
+      this.burstMode = 'splatter';
+      this.burstDurationSamples = Math.floor(0.28 * this.sampleRate);
+      if (!wasHeld) {
+        this.midiNote = 48;
+        this.setTargetPitchMidi(48, true, 130.81);
+        this.releaseCoeff = Math.exp(-1.0 / (0.165 * this.sampleRate));
+      }
+      this.aeroFluidEngine.triggerBubble(5.4, vel * 0.95, 1.00038);
+      this.aeroFluidEngine.triggerBubble(3.6, vel * 0.90, 1.00032);
+      this.aeroFluidEngine.triggerBubble(2.2, vel * 0.85, 1.00028);
+      this.aeroFluidEngine.triggerDroplet(vel * 0.95);
+      this.aeroFluidEngine.triggerDroplet(vel * 0.80);
+    } else if (burstType === 'cavity' || burstType === 'JORDAN-RESONANZ') {
+      // 4. JORDAN-RESONANZ: Struck 2D Jordan-enclosure porcelain ceramic bowl resonance (146.8 Hz, high-Q ceramic ring, 360 ms decay)
+      this.burstMode = 'cavity';
+      this.burstDurationSamples = Math.floor(0.55 * this.sampleRate);
+      if (!wasHeld) {
+        this.midiNote = 50;
+        this.setTargetPitchMidi(50, true, 146.83);
+        this.releaseCoeff = Math.exp(-1.0 / (0.36 * this.sampleRate));
+        this.modalMatrix.cachedBoundaryMode = -1;
+        this.modalMatrix.jordanField.generateCavityField(1.5, 0.85, 3);
+        this.modalMatrix.cachedCavityModes.set(this.modalMatrix.jordanField.projectTo16Modes());
+        this.modalMatrix.cachedBoundaryMode = 3;
+      }
+      this.mucosalExciter.triggerSlap(vel * 1.4, 2.85);
+    } else {
+      this.burstMode = 'impulse';
+      this.burstDurationSamples = Math.floor(0.14 * this.sampleRate);
+      if (!wasHeld) {
+        this.midiNote = 33;
+        this.setTargetPitchMidi(33, true, 55.0);
+        this.releaseCoeff = Math.exp(-1.0 / (0.085 * this.sampleRate));
+      }
+      this.mucosalExciter.triggerSlap(vel, 2.8);
+    }
+  }
+
   noteOff() {
     this.gateState = 'Release';
     const tauS = Math.max(0.02, (this.params.vactrolSagTauMs ?? 85.0) * 0.001);
@@ -1991,23 +2151,219 @@ export class PhysicalVoice {
   processSample(externalPressureMod = 0.0) {
     if (!this.active) return { left: 0.0, right: 0.0 };
 
-    // 1. Portamento glide
-    this.currentFreqHz += this.glideCoeff * (this.targetFreqHz - this.currentFreqHz);
+    // 1. Portamento glide & smooth re-articulation modal damping
+    if (this.retrigDampSamples > 0) {
+      --this.retrigDampSamples;
+      for (let i = 0; i < 16; ++i) {
+        this.modalMatrix.s1[i] *= 0.985;
+        this.modalMatrix.s2[i] *= 0.985;
+      }
+      this.currentFreqHz += Math.max(this.glideCoeff, 0.18) * (this.targetFreqHz - this.currentFreqHz);
+    } else {
+      this.currentFreqHz += this.glideCoeff * (this.targetFreqHz - this.currentFreqHz);
+    }
     this.currentFreqHz = flushDenormal(this.currentFreqHz);
 
-    // 2. Dynamic colonic pressure (in-place without per-sample Object.assign)
+    // 2. Dynamic colonic pressure & burst synthesis overrides (in-place without per-sample allocation)
     const p = this.params;
     const savedPressure = p.colonicPressure;
     const savedFreqHz = p.frequencyHz;
     const savedFundamentalHz = p.fundamentalHz;
+    const savedManifold = p.geometricManifold;
+    const savedDamping = p.dampingProfile;
+    const savedCavityMix = p.porcelainCavityMix;
+    const savedBoundary = p.porcelainBoundaryMode;
+    const savedStiction = p.karnoppStiction;
+    const savedBreakaway = p.stribeckBreakaway;
+    const savedTension = p.mucosalTension;
+    const savedAperture = p.restingApertureMm;
+    const savedHardness = p.tissueHardness;
+    const savedMoisture = p.multiphaseMoisture;
+    const savedTriadGain = p.triadCouplingGain;
+    const savedHhCoupling = p.householderCoupling;
 
     const velocityScale = 0.35 + 0.65 * this.velocity;
-    p.frequencyHz = this.currentFreqHz;
-    p.fundamentalHz = this.currentFreqHz;
-    p.colonicPressure = clamp(
+    const baseFreq = this.currentFreqHz;
+    const basePressure = clamp(
       (savedPressure ?? 0.70) * velocityScale + externalPressureMod,
       0.0, 1.0
     );
+    p.frequencyHz = baseFreq;
+    p.fundamentalHz = baseFreq;
+    p.colonicPressure = basePressure;
+
+    let burstModalInject = 0.0;
+    let burstDirectL = 0.0;
+    let burstDirectR = 0.0;
+    let fluidMixBoost = 0.25;
+    let standaloneAttackGain = 1.0;
+
+    if (this.burstMode !== null) {
+      const inActiveWindow = this.burstSamplePos < this.burstDurationSamples;
+      const clampedPos = Math.min(this.burstSamplePos, this.burstDurationSamples);
+      const tSec = clampedPos / this.sampleRate;
+      const bInt = this.burstIntensity;
+      const attackDur = this.burstWasHeld ? 0.0030 : 0.0014;
+      const attackWin = 0.5 * (1.0 - Math.cos(Math.min(1.0, tSec / attackDur) * kPi));
+      if (!this.burstWasHeld && inActiveWindow && tSec < attackDur) {
+        standaloneAttackGain = attackWin;
+      }
+
+      const releaseStart = 0.72 * this.burstDurationSamples;
+      const releaseWin = !inActiveWindow
+        ? 0.0
+        : (this.burstSamplePos > releaseStart
+          ? 0.5 * (1.0 + Math.cos(kPi * (this.burstSamplePos - releaseStart) / Math.max(1.0, this.burstDurationSamples - releaseStart)))
+          : 1.0);
+      const burstWin = this.burstWasHeld ? (attackWin * releaseWin) : releaseWin;
+      const paramBlend = this.burstWasHeld ? burstWin : 1.0;
+
+      if (this.burstMode === 'impulse') {
+        // 1. IMPULS-SCHLAG: Fast exponential pitch drop (172 Hz -> 36.7 Hz) + Hertzian impact shockwave
+        const fSweep = 36.71 + 135.0 * Math.exp(-tSec / 0.015);
+        if (inActiveWindow) {
+          this.burstPhase += (kTwoPi * fSweep) / this.sampleRate;
+          if (this.burstPhase >= kTwoPi) this.burstPhase -= kTwoPi;
+        }
+
+        const subThud = Math.sin(this.burstPhase) * attackWin * releaseWin * Math.exp(-tSec / 0.036) * bInt;
+        const diracClick = Math.sin(kTwoPi * 680.0 * tSec) * attackWin * releaseWin * Math.exp(-tSec / 0.0024) * bInt;
+
+        p.frequencyHz = baseFreq + paramBlend * (fSweep - baseFreq);
+        p.fundamentalHz = baseFreq + paramBlend * (fSweep - baseFreq);
+        if (!this.burstWasHeld) {
+          p.geometricManifold = 0; // SigmoidHorn
+          p.dampingProfile = 4;    // StiffCartilage
+        }
+        p.tissueHardness = (savedHardness ?? 2.1) + paramBlend * (2.95 - (savedHardness ?? 2.1));
+        const bPress = 0.36 * Math.exp(-tSec / 0.028) * bInt;
+        p.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+
+        burstModalInject = subThud * 0.95 + diracClick * 0.70;
+        burstDirectL = (subThud * 0.92 + diracClick * 0.28);
+        burstDirectR = (subThud * 0.92 + diracClick * 0.28);
+        fluidMixBoost = 0.25 + burstWin * (0.04 - 0.25);
+      } else if (this.burstMode === 'breakaway') {
+        // 2. KARNOPP-ABRISS: Violent 31 Hz stick-slip friction flutter & mucosal raspberry tear
+        const flutterRate = 31.0;
+        const flutterCycleSamples = Math.max(1, Math.floor(this.sampleRate / flutterRate));
+        const flutterPhase = (tSec * flutterRate) % 1.0;
+
+        if (inActiveWindow && this.burstSamplePos > 0 && (this.burstSamplePos % flutterCycleSamples === 0) && tSec < 0.23) {
+          this.mucosalExciter.triggerSealBurst(bInt * 1.65 * releaseWin);
+        }
+
+        const fTear = (52.0 + 42.0 * Math.exp(-tSec / 0.16)) * (0.84 + 0.32 * Math.cos(kTwoPi * flutterPhase));
+        if (inActiveWindow) {
+          this.burstPhase += (kTwoPi * fTear) / this.sampleRate;
+          if (this.burstPhase >= kTwoPi) this.burstPhase -= kTwoPi;
+        }
+
+        const stickSlipGate = 0.54 + 0.46 * Math.tanh(3.2 * Math.sin(kTwoPi * flutterPhase));
+        const rawHarmonics = Math.sin(this.burstPhase) +
+                             0.75 * Math.sin(2.0 * this.burstPhase) +
+                             0.50 * Math.sin(3.0 * this.burstPhase) +
+                             0.30 * Math.sin(4.0 * this.burstPhase);
+        const tearWave = Math.tanh(1.65 * rawHarmonics) * stickSlipGate * attackWin * releaseWin * Math.exp(-tSec / 0.21) * bInt;
+
+        p.frequencyHz = baseFreq + paramBlend * (fTear - baseFreq);
+        p.fundamentalHz = baseFreq + paramBlend * (fTear - baseFreq);
+        const bPress = clamp(0.95 * stickSlipGate * bInt, 0.0, 1.0);
+        p.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+        p.karnoppStiction = (savedStiction ?? 0.65) + paramBlend * (0.98 - (savedStiction ?? 0.65));
+        p.stribeckBreakaway = (savedBreakaway ?? 2.2) + paramBlend * (7.8 - (savedBreakaway ?? 2.2));
+        p.mucosalTension = (savedTension ?? 0.50) + paramBlend * (0.84 - (savedTension ?? 0.50));
+        p.restingApertureMm = (savedAperture ?? 1.0) + paramBlend * (0.35 - (savedAperture ?? 1.0));
+        if (!this.burstWasHeld) {
+          p.geometricManifold = 1; // ChladniRing
+          p.dampingProfile = 2;    // WetElastomer
+        }
+        p.triadCouplingGain = (savedTriadGain ?? 0.85) + paramBlend * (1.55 - (savedTriadGain ?? 0.85));
+
+        burstModalInject = tearWave * 0.95;
+        burstDirectL = tearWave * 0.52;
+        burstDirectR = -tearWave * 0.46;
+      } else if (this.burstMode === 'splatter') {
+        // 3. MINNAERT-PLOPP: Hydro-acoustic Minnaert bubble cascade & upward-chirping cavity plop
+        const cascadeInterval = Math.max(1, Math.floor(0.014 * this.sampleRate));
+        if (inActiveWindow && this.burstSamplePos > 0 && (this.burstSamplePos % cascadeInterval === 0) && tSec < 0.20) {
+          const stepIdx = Math.floor(this.burstSamplePos / cascadeInterval);
+          const rMm = 1.1 + 4.4 * (((stepIdx * 5 + 3) % 11) / 10.0);
+          this.aeroFluidEngine.triggerBubble(rMm, bInt * 0.88 * releaseWin, 1.00036);
+          this.aeroFluidEngine.triggerDroplet(bInt * 0.65 * releaseWin);
+        }
+
+        // Primary Minnaert detachment upward pitch chirp (175 Hz -> 540 Hz over 65 ms)
+        const chirpProgress = Math.min(1.0, tSec / 0.065);
+        const fPlop = 175.0 + 365.0 * (chirpProgress * chirpProgress);
+        if (inActiveWindow) {
+          this.burstPhase += (kTwoPi * fPlop) / this.sampleRate;
+          if (this.burstPhase >= kTwoPi) this.burstPhase -= kTwoPi;
+        }
+
+        const plopEnv = Math.sin(Math.min(1.0, tSec / 0.004) * kHalfPi) * releaseWin * Math.exp(-tSec / 0.052);
+        const plopWave = Math.sin(this.burstPhase) * plopEnv * bInt;
+
+        p.frequencyHz = baseFreq + paramBlend * (fPlop - baseFreq);
+        p.fundamentalHz = baseFreq + paramBlend * (fPlop - baseFreq);
+        const bPress = 0.08 * Math.exp(-tSec / 0.030);
+        p.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+        p.multiphaseMoisture = (savedMoisture ?? 0.35) + paramBlend * (0.98 - (savedMoisture ?? 0.35));
+        if (!this.burstWasHeld) {
+          p.dampingProfile = 2;        // WetElastomer
+          p.porcelainBoundaryMode = 2; // Water-Coupled
+        }
+        p.porcelainCavityMix = (savedCavityMix ?? 35.0) + paramBlend * (65.0 - (savedCavityMix ?? 35.0));
+
+        burstModalInject = plopWave * 0.52;
+        burstDirectL = plopWave * 0.38;
+        burstDirectR = plopWave * 0.34;
+        fluidMixBoost = 0.25 + burstWin * (0.88 - 0.25);
+      } else if (this.burstMode === 'cavity') {
+        // 4. JORDAN-RESONANZ: Struck 2D Jordan-enclosure porcelain ceramic bowl standing waves
+        const fBowl = 146.83;
+        p.frequencyHz = baseFreq + paramBlend * (fBowl - baseFreq);
+        p.fundamentalHz = baseFreq + paramBlend * (fBowl - baseFreq);
+        if (!this.burstWasHeld) {
+          p.geometricManifold = 3;     // PorcelainBowl
+          p.dampingProfile = 3;        // High-Q ceramic/bell resonance (Q=240)
+          p.porcelainBoundaryMode = 3; // Tiled ceramic enclosure
+        }
+        p.porcelainCavityMix = (savedCavityMix ?? 35.0) + paramBlend * (100.0 - (savedCavityMix ?? 35.0));
+        p.householderCoupling = (savedHhCoupling ?? 0.45) + paramBlend * (0.82 - (savedHhCoupling ?? 0.45));
+        p.triadCouplingGain = (savedTriadGain ?? 0.85) + paramBlend * (0.35 - (savedTriadGain ?? 0.85));
+        const bPress = (tSec < 0.008) ? (0.45 * bInt) : 0.0;
+        p.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+
+        const ceramicRingL = (
+          0.55 * Math.sin(kTwoPi * 146.83 * tSec) * Math.exp(-tSec / 0.26) +
+          0.42 * Math.sin(kTwoPi * 221.71 * tSec + 0.4) * Math.exp(-tSec / 0.22) +
+          0.32 * Math.sin(kTwoPi * 314.22 * tSec + 1.1) * Math.exp(-tSec / 0.18) +
+          0.22 * Math.sin(kTwoPi * 530.05 * tSec + 2.0) * Math.exp(-tSec / 0.14)
+        ) * attackWin * releaseWin * bInt;
+        const ceramicRingR = (
+          0.55 * Math.sin(kTwoPi * 146.83 * tSec) * Math.exp(-tSec / 0.26) -
+          0.42 * Math.sin(kTwoPi * 221.71 * tSec + 0.4) * Math.exp(-tSec / 0.22) +
+          0.32 * Math.sin(kTwoPi * 314.22 * tSec + 1.1) * Math.exp(-tSec / 0.18) -
+          0.22 * Math.sin(kTwoPi * 530.05 * tSec + 2.0) * Math.exp(-tSec / 0.14)
+        ) * attackWin * releaseWin * bInt;
+
+        if (tSec < 0.018) {
+          const strikeEnv = attackWin * Math.exp(-tSec / 0.0032);
+          burstModalInject = ceramicRingL * strikeEnv * 1.35;
+        }
+        burstDirectL = ceramicRingL * 0.44;
+        burstDirectR = ceramicRingR * 0.44;
+        fluidMixBoost = 0.25 + burstWin * (0.06 - 0.25);
+      }
+
+      if (inActiveWindow) {
+        ++this.burstSamplePos;
+        if (this.burstSamplePos >= this.burstDurationSamples && this.burstWasHeld) {
+          this.burstMode = null;
+        }
+      }
+    }
 
     // 3. Mucosal Valve Excitation
     const exciterSig = this.mucosalExciter.processSample(p);
@@ -2018,12 +2374,24 @@ export class PhysicalVoice {
     const fluidSig = this.aeroFluidEngine.processSample(airVelocity, aperture, 0.0, p);
 
     // 5. 16-Pole Modal Resonator Matrix
-    const totalExcitation = exciterSig + fluidSig;
+    const totalExcitation = exciterSig + fluidSig + burstModalInject;
     const stereoOut = this.modalMatrix.processSample(totalExcitation, p);
 
     p.colonicPressure = savedPressure;
     p.frequencyHz = savedFreqHz;
     p.fundamentalHz = savedFundamentalHz;
+    p.geometricManifold = savedManifold;
+    p.dampingProfile = savedDamping;
+    p.porcelainCavityMix = savedCavityMix;
+    p.porcelainBoundaryMode = savedBoundary;
+    p.karnoppStiction = savedStiction;
+    p.stribeckBreakaway = savedBreakaway;
+    p.mucosalTension = savedTension;
+    p.restingApertureMm = savedAperture;
+    p.tissueHardness = savedHardness;
+    p.multiphaseMoisture = savedMoisture;
+    p.triadCouplingGain = savedTriadGain;
+    p.householderCoupling = savedHhCoupling;
 
     // 6. Local Vactrol Envelope Gate
     if (this.gateState === 'NoteOn') {
@@ -2035,11 +2403,13 @@ export class PhysicalVoice {
         this.envelope = 0.0;
         this.active = false;
         this.gateState = 'Off';
+        this.burstMode = null;
+        this.burstWasHeld = false;
       }
     }
 
-    let outL = stereoOut.left * this.envelope;
-    let outR = stereoOut.right * this.envelope;
+    let outL = (stereoOut.left + fluidSig * fluidMixBoost + burstDirectL) * this.envelope * standaloneAttackGain;
+    let outR = (stereoOut.right + fluidSig * fluidMixBoost * 0.92 + burstDirectR) * this.envelope * standaloneAttackGain;
 
     // 7. Steal Crossfade
     if (this.stealingFade) {
@@ -2072,6 +2442,7 @@ export class VoiceManager {
     this.glideTimeMs = 45.0;
     this.pitchBendSemitones = 0.0;
     this.clock = 0;
+    this.headroomGain = 1.0;
 
     this.voices = Array.from({ length: maxVoices }, (_, idx) => {
       const v = new PhysicalVoice();
@@ -2098,6 +2469,7 @@ export class VoiceManager {
     for (const v of this.voices) v.reset();
     this.noteStack = [];
     this.clock = 0;
+    this.headroomGain = 1.0;
   }
 
   setVoicingMode(mode) {
@@ -2259,11 +2631,12 @@ export class VoiceManager {
     let sumR = 0.0;
     let activeCount = 0;
     const isUnison = this.voicingMode === 2;
+    const unisonEnsembleActive = isUnison && (this.voices[1].active || this.voices[2].active || this.voices[3].active);
     for (let i = 0; i < this.voices.length; ++i) {
       const v = this.voices[i];
       if (!v.active) continue;
       const s = v.processSample();
-      if (isUnison && i < 4) {
+      if (unisonEnsembleActive && i < 4) {
         const pan = this.unisonPanOffsets[i]; // [-0.80, -0.30, +0.30, +0.80]
         const normPan = 0.5 * (pan + 1.0);
         const gainL = Math.cos(kHalfPi * normPan) * kSqrt2;
@@ -2276,11 +2649,10 @@ export class VoiceManager {
       }
       ++activeCount;
     }
-    if (activeCount > 1) {
-      const scale = 1.0 / Math.sqrt(activeCount);
-      sumL *= scale;
-      sumR *= scale;
-    }
+    const targetScale = activeCount > 1 ? (1.0 / Math.sqrt(activeCount)) : 1.0;
+    this.headroomGain += 0.008 * (targetScale - this.headroomGain);
+    sumL *= this.headroomGain;
+    sumR *= this.headroomGain;
     return { left: sumL, right: sumR };
   }
 
@@ -2454,32 +2826,7 @@ export class Pf02DspEngine {
   }
 
   triggerKineticBurst(burstType, velocity = 1.0) {
-    const v = this.voiceManager.voices[0];
-    const wasHeld = v.active && v.gateState === 'NoteOn';
-    const vel = clamp(velocity ?? 1.0, 0.1, 1.0);
-
-    if (!wasHeld) {
-      v.noteOn(33, vel);
-      v.envelope = Math.max(v.envelope, 0.90);
-    }
-
-    if (burstType === 'impulse' || burstType === 'IMPULS-SCHLAG') {
-      v.mucosalExciter.triggerSlap(vel, 2.8);
-    } else if (burstType === 'breakaway' || burstType === 'KARNOPP-ABRISS') {
-      v.mucosalExciter.triggerSealBurst(vel * 2.0);
-    } else if (burstType === 'splatter' || burstType === 'MINNAERT-PLOPP') {
-      v.aeroFluidEngine.triggerFlapBurst(vel, 0.9, 30.0);
-    } else if (burstType === 'cavity' || burstType === 'JORDAN-RESONANZ') {
-      v.modalMatrix.cachedBoundaryMode = -1;
-      v.modalMatrix.jordanField.generateCavityField(1.5, 0.8, 3);
-      v.modalMatrix.cachedCavityModes.set(v.modalMatrix.jordanField.projectTo16Modes());
-      v.modalMatrix.cachedBoundaryMode = 3;
-      v.mucosalExciter.triggerSealBurst(vel * 1.5);
-    }
-
-    if (!wasHeld) {
-      v.noteOff();
-    }
+    this.voiceManager.voices[0].triggerKineticBurst(burstType, velocity);
   }
 
   setParameter(key, val) {
@@ -2505,6 +2852,12 @@ export class Pf02DspEngine {
         this.modulatedSaturationDrive = clamp(val, 0.0, 100.0);
         this.voiceManager.setParameter('colonicSaturationDrive', val);
         break;
+      case 'param_zeno_unroll_override': {
+        const kChoice = Math.round(val);
+        const activeK = kChoice === 1 ? 1 : kChoice === 2 ? 4 : kChoice === 3 ? 8 : kChoice === 4 ? 16 : 4;
+        this.voiceManager.setParameter('zenoUnrollK', activeK);
+        break;
+      }
       case 'macro_gut_squeeze':
         this.applyMacroSqueeze(val);
         break;

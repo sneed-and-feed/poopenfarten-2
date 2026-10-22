@@ -54,7 +54,7 @@ void testParametersTaxonomy() {
 
     const auto& defs = getAllParameterDefs();
     M2_ASSERT(defs.size() == 40, "Must have exactly 40 parameters");
-    M2_ASSERT(kNumParameters == 40, "kNumParameters constant must equal 40");
+    static_assert(kNumParameters == 40, "kNumParameters constant must equal 40");
 
     // Check unique IDs and names
     for (size_t i = 0; i < defs.size(); ++i) {
@@ -286,9 +286,9 @@ void testPf02AudioEngine() {
     bool popped = engine.popTelemetry(frame);
     M2_ASSERT(popped, "Must be able to pop 60 Hz telemetry frame from SPSC queue");
 
-    M2_ASSERT(frame.waveformL.size() == 128, "Waveform L must hold 128 samples");
-    M2_ASSERT(frame.waveformR.size() == 128, "Waveform R must hold 128 samples");
-    M2_ASSERT(frame.modalEnergies.size() == 16, "Modal energies must track 16 partials");
+    static_assert(std::tuple_size_v<decltype(frame.waveformL)> == 128, "Waveform L must hold 128 samples");
+    static_assert(std::tuple_size_v<decltype(frame.waveformR)> == 128, "Waveform R must hold 128 samples");
+    static_assert(std::tuple_size_v<decltype(frame.modalEnergies)> == 16, "Modal energies must track 16 partials");
     M2_ASSERT(frame.activeUnrollK >= 1 && frame.activeUnrollK <= 16, "Active unroll K must be valid");
     M2_ASSERT(frame.sphericalNormDrift < 1e-6f, "Spherical norm drift must be < 1e-6");
 
@@ -376,6 +376,141 @@ static void testPresetHeadroomAndPitchAccuracy() {
 }
 
 // ============================================================================
+// Test 7: Kinetic Burst Distinctness, Held-Note Transition Smoothness & Low-End Stress
+// ============================================================================
+static void testKineticBurstsAndLowEndHeadroom() {
+    std::cout << "[M2-TEST 7] Verifying 4 Kinetic Bursts Distinctness, Held-Note Smoothness & Low-End Headroom...\n";
+
+    constexpr int kRenderLen = 28000;
+    const std::array<std::string_view, 4> burstTypes = { "impulse", "breakaway", "splatter", "cavity" };
+    std::array<std::vector<float>, 4> wavesL;
+    std::array<float, 4> zcrHz {};
+    std::array<float, 4> centroidMs {};
+
+    // 1. Standalone burst distinctness & Stereo Unison centering
+    for (size_t b = 0; b < 4; ++b) {
+        Pf02AudioEngine eng;
+        eng.prepare(48000.0, 512);
+        eng.setParameter(ParameterId::VoicingMode, 2.0f); // StereoUnison
+        eng.triggerKineticBurst(burstTypes[b], 1.0f);
+
+        wavesL[b].assign(kRenderLen, 0.0f);
+        std::vector<float> waveR(kRenderLen, 0.0f);
+        float* chans[2] = { wavesL[b].data(), waveR.data() };
+        eng.processBlock(chans, 2, kRenderLen);
+
+        double sumSqL = 0.0, sumSqR = 0.0, weightedPos = 0.0;
+        int zc = 0;
+        float maxP = 0.0f, maxD2 = 0.0f;
+        for (int i = 0; i < kRenderLen; ++i) {
+            const float l = wavesL[b][i];
+            const float r = waveR[i];
+            const double eL = static_cast<double>(l) * l;
+            sumSqL += eL;
+            sumSqR += static_cast<double>(r) * r;
+            weightedPos += static_cast<double>(i) * eL;
+            maxP = std::max(maxP, std::max(std::abs(l), std::abs(r)));
+            if (i > 0 && ((wavesL[b][i - 1] <= 0.0f && l > 0.0f) || (wavesL[b][i - 1] >= 0.0f && l < 0.0f))) {
+                ++zc;
+            }
+            if (i >= 2) {
+                const float d2 = std::abs(l - 2.0f * wavesL[b][i - 1] + wavesL[b][i - 2]);
+                if (d2 > maxD2) maxD2 = d2;
+            }
+        }
+        const float rmsL = static_cast<float>(std::sqrt(sumSqL / kRenderLen));
+        const float rmsR = static_cast<float>(std::sqrt(sumSqR / kRenderLen));
+        zcrHz[b] = (static_cast<float>(zc) * 0.5f) / (static_cast<float>(kRenderLen) / 48000.0f);
+        centroidMs[b] = static_cast<float>((weightedPos / (sumSqL + 1e-12)) / 48000.0 * 1000.0);
+
+        M2_ASSERT(rmsL > 0.02f && rmsR > 0.02f, "Standalone kinetic burst in StereoUnison must be audible on both L and R channels");
+        const float balanceDiff = std::abs(rmsL - rmsR) / std::max(rmsL, rmsR);
+        M2_ASSERT(balanceDiff < 0.25f, "Standalone kinetic burst in StereoUnison must remain stereo-balanced (not hard-panned left)");
+        M2_ASSERT(maxP < 0.96f, "Standalone kinetic burst must not clip");
+        M2_ASSERT(maxD2 < 0.055f, "Standalone kinetic burst must have smooth C1 onset and release without step clicks");
+    }
+
+    // Pairwise cross-correlation < 0.25 across all 6 pairs
+    for (size_t i = 0; i < 4; ++i) {
+        for (size_t j = i + 1; j < 4; ++j) {
+            double dot = 0.0, n1 = 0.0, n2 = 0.0;
+            for (int s = 0; s < 14400; ++s) {
+                dot += static_cast<double>(wavesL[i][s]) * wavesL[j][s];
+                n1  += static_cast<double>(wavesL[i][s]) * wavesL[i][s];
+                n2  += static_cast<double>(wavesL[j][s]) * wavesL[j][s];
+            }
+            const double corr = std::abs(dot / std::sqrt(n1 * n2 + 1e-24));
+            M2_ASSERT(corr < 0.25, "All 4 C++ kinetic bursts must have pairwise correlation |r| < 0.25");
+        }
+    }
+    M2_ASSERT(centroidMs[0] < 30.0f && zcrHz[0] < 200.0f,
+              "Impulse burst must be a fast sub-bass thud (<30ms centroid, <200Hz ZCR)");
+    M2_ASSERT(zcrHz[2] > 500.0f && zcrHz[2] > zcrHz[1] && zcrHz[2] > zcrHz[3],
+              "Splatter burst must have highest-frequency Minnaert bubble/droplet activity (>500Hz ZCR)");
+    M2_ASSERT(centroidMs[3] > 60.0f && centroidMs[1] > 45.0f,
+              "Cavity and Breakaway bursts must have sustained modal/stick-slip energy centroids");
+
+    // 2. Held-note burst transition smoothness (no spike at burst start or burstDurationSamples)
+    for (size_t b = 0; b < 4; ++b) {
+        Pf02AudioEngine eng;
+        eng.prepare(48000.0, 512);
+        eng.noteOn(33, 1.0f);
+        std::vector<float> warmL(2400, 0.0f), warmR(2400, 0.0f);
+        float* warmChans[2] = { warmL.data(), warmR.data() };
+        eng.processBlock(warmChans, 2, 2400);
+
+        eng.triggerKineticBurst(burstTypes[b], 1.0f);
+        std::vector<float> holdL(kRenderLen, 0.0f), holdR(kRenderLen, 0.0f);
+        float* holdChans[2] = { holdL.data(), holdR.data() };
+        eng.processBlock(holdChans, 2, kRenderLen);
+
+        float maxP = 0.0f, maxD2 = 0.0f;
+        for (int i = 2; i < kRenderLen; ++i) {
+            maxP = std::max(maxP, std::max(std::abs(holdL[i]), std::abs(holdR[i])));
+            const float d2 = std::abs(holdL[i] - 2.0f * holdL[i - 1] + holdL[i - 2]);
+            if (d2 > maxD2) maxD2 = d2;
+        }
+        M2_ASSERT(maxP < 0.96f, "Held-note + kinetic burst must not clip");
+        M2_ASSERT(maxD2 < 0.06f, "Held-note + kinetic burst must transition smoothly without boundary step clicks");
+    }
+
+    // 3. Low-end polyphonic stress (4 sub-bass notes + +6 dB sub reinforcement + 85% saturation drive)
+    {
+        Pf02AudioEngine eng;
+        eng.prepare(48000.0, 512);
+        eng.setParameter(ParameterId::VoicingMode, 1.0f); // Poly8
+        eng.setParameter(ParameterId::VisceralSubReinforce, 6.0f);
+        eng.setParameter(ParameterId::ColonicSaturationDrive, 85.0f);
+        eng.setParameter(ParameterId::ColonicPressure, 0.95f);
+        eng.noteOn(24, 1.0f);
+        eng.noteOn(28, 1.0f);
+        eng.noteOn(31, 1.0f);
+        eng.noteOn(36, 1.0f);
+
+        std::vector<float> subL(12000, 0.0f), subR(12000, 0.0f);
+        float* subChans[2] = { subL.data(), subR.data() };
+        eng.processBlock(subChans, 2, 12000);
+
+        float maxP = 0.0f;
+        int flatRun = 0, maxFlatRun = 0;
+        for (int i = 1; i < 12000; ++i) {
+            const float a = std::max(std::abs(subL[i]), std::abs(subR[i]));
+            maxP = std::max(maxP, a);
+            if (std::abs(subL[i]) > 0.85f && std::abs(subL[i] - subL[i - 1]) < 1e-5f) {
+                ++flatRun;
+                maxFlatRun = std::max(maxFlatRun, flatRun);
+            } else {
+                flatRun = 0;
+            }
+        }
+        M2_ASSERT(maxP < 0.99f, "Low-end polyphonic sub-bass stress must stay strictly below 0.99 ceiling");
+        M2_ASSERT(maxFlatRun <= 2, "Low-end polyphonic sub-bass stress must never flat-top clip");
+    }
+
+    std::cout << "  -> 4 kinetic bursts distinctness, held-note C1 smoothness, and low-end headroom verified (PASSED)\n";
+}
+
+// ============================================================================
 // Main Execution Entry Point
 // ============================================================================
 int main() {
@@ -392,12 +527,13 @@ int main() {
     testVoiceManager();
     testPf02AudioEngine();
     testPresetHeadroomAndPitchAccuracy();
+    testKineticBurstsAndLowEndHeadroom();
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double totalMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
     std::cout << "\n================================================================================\n";
-    std::cout << "   ALL 6 MILESTONE M2 TEST SUITES PASSED WITH 100% EMPIRICAL SUCCESS            \n";
+    std::cout << "   ALL 7 MILESTONE M2 TEST SUITES PASSED WITH 100% EMPIRICAL SUCCESS            \n";
     std::cout << "   Total Execution Time: " << std::fixed << std::setprecision(2) << totalMs << " ms\n";
     std::cout << "   VERDICT: APPROVE (MILESTONE M2 COMPLETE)                                     \n";
     std::cout << "================================================================================\n";

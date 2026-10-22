@@ -48,7 +48,7 @@ public:
         const AeroFluidParams& params) noexcept;
 
     // Direct manual triggers for bubbles, droplets, and peristalsis
-    void triggerBubble(float radiusMm, float intensity) noexcept;
+    void triggerBubble(float radiusMm, float intensity, float chirpRate = 1.00018f) noexcept;
     void triggerDroplet(float intensity) noexcept;
     void triggerPeristalticPulse(float intensity) noexcept;
     void triggerFlapBurst(float openingIntensity, float moisture, float dropletRate) noexcept;
@@ -67,7 +67,9 @@ private:
         bool  active      { false };
         float phase       { 0.0f };
         float phaseInc    { 0.0f };
+        float chirp       { 1.00016f };
         float envelope    { 0.0f };
+        float attackGain  { 0.0f };
         float decayRate   { 0.98f };
         float frequencyHz { 1500.0f };
     };

@@ -105,6 +105,7 @@ private:
     float mPitchBendSemitones { 0.0f };
 
     uint64_t mClock { 0 };
+    float    mHeadroomGain { 1.0f };
 
     // 8 Pre-allocated Physical Voices
     std::array<PhysicalVoice, kMaxVoices> mVoices;

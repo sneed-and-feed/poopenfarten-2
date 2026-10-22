@@ -153,13 +153,13 @@ private:
         float mS2 { 0.0f };
     };
 
-    // Visceral Sub-bass Reinforcement Resonator (35 Hz tuned lowpass/sub harmonic)
+    // Visceral Sub-bass Reinforcement Resonator (38 Hz tuned lowpass/sub harmonic)
     class VisceralSubResonator {
     public:
         void prepare(float sampleRate) noexcept {
             const float fs = (sampleRate > 100.0f) ? sampleRate : 48000.0f;
             const float g = std::tan(kPi * (38.0f / fs));
-            constexpr float k = 0.50f; // Q = 2.0 resonant peak
+            constexpr float k = 0.90f; // Controlled Q = 1.11 warm sub reinforcement without resonant peaking
             mA1 = 1.0f / (1.0f + g * (g + k));
             mG = g;
             mK = k;
@@ -178,13 +178,13 @@ private:
             mS1 = flushDenormal(2.0f * vBp - mS1);
             mS2 = flushDenormal(2.0f * vLp - mS2);
             // Return resonant lowpass + bandpass body
-            return flushDenormal(vLp + vBp * 0.5f);
+            return flushDenormal(vLp + vBp * 0.35f);
         }
 
     private:
         float mA1 { 1.0f };
         float mG  { 0.002f };
-        float mK  { 0.50f };
+        float mK  { 0.90f };
         float mS1 { 0.0f };
         float mS2 { 0.0f };
     };
