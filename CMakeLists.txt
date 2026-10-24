@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 # ==============================================================================
 # Poopenfarten II (`PF-02 · Darm-Akustischer & Ultrametrischer Triaden-Synthesizer`)
 # JUCE 8 CMake Multi-Format & Multi-Platform Build System
-# Formats: Standalone (.exe), VST3 (.vst3), CLAP (.clap)
+# Formats: Standalone (.exe), VST3 (.vst3), CLAP (.clap), AU (.component)
 # ==============================================================================
 
 # Configure Apple deployment targets before project()
@@ -12,7 +12,7 @@ if(APPLE)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
 endif()
 
-project(poopenfarten2 VERSION 2.0.0 LANGUAGES C CXX)
+project(poopenfarten2 VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,6 +20,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Position-independent code for shared library plugin targets
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+option(PF02_BUILD_TESTS "Build PF-02 verification test suites" ON)
+option(PF02_USE_WEBVIEW "Build PF-02 with embedded WebView GUI" ON)
 
 # ==============================================================================
 # Real-Time Compiler Optimizations & Cross-Platform Warning Flags
@@ -185,7 +188,9 @@ add_custom_target(PackagePf02WebAssets DEPENDS "${PF02_WEB_ASSETS_ZIP}")
 juce_add_binary_data(Pf02WebAssets SOURCES "${PF02_WEB_ASSETS_ZIP}")
 add_dependencies(Pf02WebAssets PackagePf02WebAssets)
 
-set(WEBVIEW2_INCLUDE_DIR "${JUCE_WEBVIEW2_PACKAGE_LOCATION}/Microsoft.Web.WebView2.${WEBVIEW2_VERSION}/build/native/include")
+if(WIN32)
+    set(WEBVIEW2_INCLUDE_DIR "${JUCE_WEBVIEW2_PACKAGE_LOCATION}/Microsoft.Web.WebView2.${WEBVIEW2_VERSION}/build/native/include")
+endif()
 
 # ==============================================================================
 # 5. pf02_dsp_core Static Library (Decoupled Physical Modeling DSP Core)
@@ -265,7 +270,7 @@ juce_add_plugin(poopenfarten2
     PLUGIN_CODE Pf02
     FORMATS ${PF02_FORMATS}
     PRODUCT_NAME "PF-02"
-    VERSION "2.0.0"
+    VERSION "0.1.0"
     ${PF02_EXTRA_PLUGIN_ARGS}
 )
 
@@ -282,8 +287,11 @@ target_include_directories(poopenfarten2 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/dsp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/parameters
     ${CMAKE_CURRENT_SOURCE_DIR}/source/engine
-    ${WEBVIEW2_INCLUDE_DIR}
 )
+
+if(WIN32 AND DEFINED WEBVIEW2_INCLUDE_DIR)
+    target_include_directories(poopenfarten2 PRIVATE ${WEBVIEW2_INCLUDE_DIR})
+endif()
 
 target_compile_definitions(poopenfarten2 PUBLIC
     JUCE_WEB_BROWSER=1
@@ -294,7 +302,6 @@ target_compile_definitions(poopenfarten2 PUBLIC
     PF02_HAS_JUCE=1
     PF02_HAS_JUCE_PROCESSORS=1
 )
-
 
 target_link_libraries(poopenfarten2 PRIVATE
     pf02_dsp_core
@@ -333,34 +340,36 @@ endif()
 # ==============================================================================
 # 7. Verification Test Suites & Runners
 # ==============================================================================
-# Core DSP Unit Tests
-add_executable(pf02_dsp_core_tests
-    tests/test_dsp_core.cpp
-)
-target_link_libraries(pf02_dsp_core_tests PRIVATE pf02_dsp_core)
-target_include_directories(pf02_dsp_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(PF02_BUILD_TESTS)
+    # Core DSP Unit Tests
+    add_executable(pf02_dsp_core_tests
+        tests/test_dsp_core.cpp
+    )
+    target_link_libraries(pf02_dsp_core_tests PRIVATE pf02_dsp_core)
+    target_include_directories(pf02_dsp_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Challenger M1-2 Tests
-add_executable(pf02_challenger_m1_2_tests
-    tests/test_challenger_m1_2.cpp
-)
-target_link_libraries(pf02_challenger_m1_2_tests PRIVATE pf02_dsp_core)
-target_include_directories(pf02_challenger_m1_2_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    # Challenger M1-2 Tests
+    add_executable(pf02_challenger_m1_2_tests
+        tests/test_challenger_m1_2.cpp
+    )
+    target_link_libraries(pf02_challenger_m1_2_tests PRIVATE pf02_dsp_core)
+    target_include_directories(pf02_challenger_m1_2_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Challenger M1-1 Adversarial Stress Tests
-add_executable(pf02_dsp_adversarial_tests
-    tests/test_adversarial_stress.cpp
-)
-target_link_libraries(pf02_dsp_adversarial_tests PRIVATE pf02_dsp_core)
-target_include_directories(pf02_dsp_adversarial_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    # Challenger M1-1 Adversarial Stress Tests
+    add_executable(pf02_dsp_adversarial_tests
+        tests/test_adversarial_stress.cpp
+    )
+    target_link_libraries(pf02_dsp_adversarial_tests PRIVATE pf02_dsp_core)
+    target_include_directories(pf02_dsp_adversarial_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Milestone M2 Engine & APVTS Tests
-add_executable(pf02_m2_engine_tests
-    tests/test_m2_engine.cpp
-)
-target_link_libraries(pf02_m2_engine_tests PRIVATE pf02_dsp_core)
-target_include_directories(pf02_m2_engine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    # Milestone M2 Engine & APVTS Tests
+    add_executable(pf02_m2_engine_tests
+        tests/test_m2_engine.cpp
+    )
+    target_link_libraries(pf02_m2_engine_tests PRIVATE pf02_dsp_core)
+    target_include_directories(pf02_m2_engine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Headless DSP Verification Test Suite (Tiers 1-4)
-enable_testing()
-add_subdirectory(source/tests)
+    # Headless DSP Verification Test Suite (Tiers 1-4)
+    enable_testing()
+    add_subdirectory(source/tests)
+endif()

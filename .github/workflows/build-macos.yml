@@ -1,0 +1,195 @@
+name: Build macOS Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore: ['**.md', 'docs/**', 'wiki/**']
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS Universal (ARM64 & x86_64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Build Tools
+        run: |
+          brew install ninja
+
+      - name: Configure CMake (macOS Universal arm64 + x86_64)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="10.15" \
+            -DPF02_BUILD_TESTS=ON
+
+      - name: Compile Release Targets
+        run: |
+          cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+
+      - name: Run Headless DSP Verification Tests
+        run: |
+          TEST_BIN=$(find build -type f -name "poopenfarten2_headless_dsp_tests" ! -name "*.o" ! -name "*.d" | head -n 1)
+          if [ -n "${TEST_BIN}" ] && [ -f "${TEST_BIN}" ]; then
+            chmod +x "${TEST_BIN}"
+            "${TEST_BIN}"
+          else
+            ctest --test-dir build --output-on-failure
+          fi
+
+      - name: Determine Version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG_NAME="${GITHUB_REF_NAME}"
+            VERSION="${TAG_NAME#v}"
+          else
+            VERSION=$(node -p "require('./package.json').version || '0.1.0'")
+            TAG_NAME="v${VERSION}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
+          echo "Building for Version: ${VERSION} (Tag: ${TAG_NAME})"
+
+      - name: Package Distribution Zip & Compute Checksum
+        run: |
+          mkdir -p package/VST3 package/CLAP package/AU package/Standalone
+          echo "Listing generated build artefacts:"
+          find build -name "*.vst3" -o -name "*.component" -o -name "*.clap" -o -name "*.app" || true
+
+          for d in $(find build -type d -name "PF-02.vst3"); do
+            echo "Copying VST3 from $d"
+            cp -R "$d" package/VST3/
+            break
+          done
+
+          for d in $(find build -type d -name "PF-02.component"); do
+            echo "Copying AU from $d"
+            cp -R "$d" package/AU/
+            break
+          done
+
+          for item in $(find build -name "PF-02.clap"); do
+            echo "Copying CLAP from $item"
+            cp -R "$item" package/CLAP/
+            break
+          done
+
+          for d in $(find build -type d -name "PF-02.app"); do
+            echo "Copying Standalone from $d"
+            cp -R "$d" package/Standalone/
+            break
+          done
+
+          # Sanity check: Ensure required binaries were packaged
+          if [ ! -d "package/VST3/PF-02.vst3" ]; then
+            echo "Error: PF-02.vst3 was not copied into package!" >&2
+            exit 1
+          fi
+          if [ ! -d "package/AU/PF-02.component" ]; then
+            echo "Error: PF-02.component was not copied into package!" >&2
+            exit 1
+          fi
+          if [ ! -e "package/CLAP/PF-02.clap" ]; then
+            echo "Error: PF-02.clap was not copied into package!" >&2
+            exit 1
+          fi
+          if [ ! -d "package/Standalone/PF-02.app" ]; then
+            echo "Error: PF-02.app was not copied into package!" >&2
+            exit 1
+          fi
+
+          # Strip quarantine attributes and apply ad-hoc signatures for Apple Silicon / Gatekeeper
+          echo "Applying ad-hoc code signature (codesign --force --deep --sign -)..."
+          for bundle in "package/VST3/PF-02.vst3" "package/AU/PF-02.component" "package/CLAP/PF-02.clap" "package/Standalone/PF-02.app"; do
+            if [ -e "$bundle" ]; then
+              xattr -cr "$bundle" 2>/dev/null || true
+              codesign --force --deep --sign - "$bundle"
+            fi
+          done
+
+          # Copy easy-run scripts into package root and grant execute permissions
+          if [ -d "scripts/macos" ]; then
+            echo "Copying macOS easy-run helper scripts..."
+            cp scripts/macos/*.command package/ 2>/dev/null || true
+            chmod +x package/*.command 2>/dev/null || true
+          fi
+
+          [ -f LICENSE ] && cp LICENSE package/
+          [ -f README.md ] && cp README.md package/
+
+          cat << 'EOF' > "package/INSTALL.txt"
+          POOPENFARTEN II (PF-02) · DARM-AKUSTISCHER & ULTRAMETRISCHER TRIADEN-SYNTHESIZER
+          MACOS UNIVERSAL (ARM64 & X86_64) INSTALLATION GUIDE
+          Standard: DIN 1451 Technical Specification
+
+          EASY INSTALLATION:
+          Double-click 'Install.command' to automatically install AU, VST3, CLAP,
+          and Standalone application, and clear Gatekeeper security flags.
+
+          MANUAL INSTALLATION:
+          1. VST3 PLUGIN:
+             Copy 'VST3/PF-02.vst3' into ~/Library/Audio/Plug-Ins/VST3/
+          2. AUDIO UNIT (AU):
+             Copy 'AU/PF-02.component' into ~/Library/Audio/Plug-Ins/Components/
+          3. CLAP PLUGIN:
+             Copy 'CLAP/PF-02.clap' into ~/Library/Audio/Plug-Ins/CLAP/
+          4. STANDALONE APP:
+             Move 'Standalone/PF-02.app' to /Applications or ~/Applications.
+          EOF
+
+          ZIP_NAME="PF-02-${TAG_NAME}-macOS-Universal.zip"
+          echo "Creating distribution archive: ${ZIP_NAME}"
+          cd package
+          zip -r -y "../${ZIP_NAME}" *
+          cd ..
+          shasum -a 256 "${ZIP_NAME}" > "${ZIP_NAME}.sha256"
+          cat "${ZIP_NAME}.sha256"
+          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PF-02-${{ env.TAG_NAME }}-macOS-Universal
+          path: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_NAME }}.sha256
+
+      - name: Attach to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ZIP="${{ env.ZIP_NAME }}"
+          SHA_NAME="${ZIP}.sha256"
+          for wait_attempt in 1 2 3; do
+            if gh release view "${TAG_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              echo "Release ${TAG_NAME} exists. Uploading macOS release assets..."
+              for attempt in 1 2 3; do
+                if gh release upload "${TAG_NAME}" "${ZIP}" "${SHA_NAME}" --repo "${{ github.repository }}" --clobber; then
+                  echo "Upload succeeded!"
+                  exit 0
+                fi
+                echo "Upload attempt $attempt failed, retrying in 10s..."
+                sleep 10
+              done
+              exit 1
+            fi
+            sleep 5
+          done
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "Creating release ${TAG_NAME} and uploading macOS assets..."
+            gh release create "${TAG_NAME}" "${ZIP}" "${SHA_NAME}" --repo "${{ github.repository }}" --title "PF-02 ${TAG_NAME}" --generate-notes || \
+            gh release upload "${TAG_NAME}" "${ZIP}" "${SHA_NAME}" --repo "${{ github.repository }}" --clobber
+          else
+            echo "Release ${TAG_NAME} does not exist yet on GitHub. Asset is preserved in workflow artifacts."
+          fi

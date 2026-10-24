@@ -1,6 +1,6 @@
 {
   "name": "poopenfarten-2",
-  "version": "2.0.0",
+  "version": "0.1.0",
   "description": "PF-02 · Darm-Akustischer & Ultrametrischer Triaden-Synthesizer. First-principles physical modeling aeroacoustic synthesizer combining Project DarkSnail continuous Lie-algebraic primitives with viscoelastic contact mechanics and modal resonator matrix.",
   "type": "module",
   "scripts": {

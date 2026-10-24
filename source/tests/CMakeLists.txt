@@ -33,7 +33,7 @@ if(NOT TARGET poopenfarten2_headless_dsp_tests)
     if(MSVC)
         target_compile_options(poopenfarten2_headless_dsp_tests PRIVATE /W4 /permissive- /utf-8 /fp:fast)
     else()
-        target_compile_options(poopenfarten2_headless_dsp_tests PRIVATE -Wall -Wextra -pedantic -ffast-math)
+        target_compile_options(poopenfarten2_headless_dsp_tests PRIVATE -Wall -Wextra -pedantic -ffast-math -fno-finite-math-only)
     endif()
 
     add_test(NAME Pf02HeadlessDspTests COMMAND poopenfarten2_headless_dsp_tests)

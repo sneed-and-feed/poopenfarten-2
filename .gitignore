@@ -36,3 +36,11 @@ node_modules/
 Thumbs.db
 *.log
 *.tmp
+
+# Archives & Releases
+*.zip
+*.tar.gz
+releases/
+dist/
+staging/
+package/
