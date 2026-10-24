@@ -80,8 +80,12 @@ with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
     zf.writestr("INSTALL.txt", install_guide)
     if os.path.exists(os.path.join(root_dir, "README.md")):
         zf.write(os.path.join(root_dir, "README.md"), "README.md")
-    if os.path.exists(os.path.join(root_dir, "ARCHITECTURE.md")):
-        zf.write(os.path.join(root_dir, "ARCHITECTURE.md"), "ARCHITECTURE.md")
+    if os.path.exists(os.path.join(root_dir, "docs", "ARCHITECTURE.md")):
+        zf.write(os.path.join(root_dir, "docs", "ARCHITECTURE.md"), "docs/ARCHITECTURE.md")
+    if os.path.exists(os.path.join(root_dir, "docs", "TESTING.md")):
+        zf.write(os.path.join(root_dir, "docs", "TESTING.md"), "docs/TESTING.md")
+    if os.path.exists(os.path.join(root_dir, "docs", "VERIFICATION_CHECKLIST.md")):
+        zf.write(os.path.join(root_dir, "docs", "VERIFICATION_CHECKLIST.md"), "docs/VERIFICATION_CHECKLIST.md")
     if os.path.exists(os.path.join(root_dir, "LICENSE")):
         zf.write(os.path.join(root_dir, "LICENSE"), "LICENSE")
 

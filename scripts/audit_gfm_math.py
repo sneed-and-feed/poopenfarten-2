@@ -33,7 +33,7 @@ def check_cross_span_collisions(line):
             next_space = next_c.isspace()
 
             left_flanking = (not next_space) and ((not next_punct) or (next_punct and (prev_space or prev_punct)))
-            right_flanking = (not prev_space) and ((not prev_punct) or (prev_punct and (next_space or next_punct)))
+            right_flanking = (not prev_space) and ((not prev_punct) or (next_punct and (next_space or next_punct)))
 
             can_open = left_flanking and (not right_flanking or prev_punct)
             can_close = right_flanking and (not left_flanking or next_punct)
@@ -440,10 +440,12 @@ def run_strict_linter(fpath):
 def main():
     targets = sys.argv[1:]
     if not targets:
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         default_files = [
-            r'c:\Users\x\Documents\antigravity\original-research\papers\paper2_cosmology.md',
-            r'c:\Users\x\Documents\antigravity\original-research\papers\paper1_spectral_geometry.md',
-            r'c:\Users\x\Documents\antigravity\original-research\README.md',
+            os.path.join(root_dir, 'README.md'),
+            os.path.join(root_dir, 'docs', 'ARCHITECTURE.md'),
+            os.path.join(root_dir, 'docs', 'TESTING.md'),
+            os.path.join(root_dir, 'docs', 'VERIFICATION_CHECKLIST.md'),
         ]
         targets = [f for f in default_files if os.path.isfile(f)]
         if not targets:

@@ -1,6 +1,6 @@
 # PF-02 · Darm-Akustischer & Ultrametrischer Triaden-Synthesizer
 
-[![Synthesizer Engine](https://img.shields.io/badge/DSP%20Engine-C%2B%2B20%20%2F%20JUCE%208-blue.svg)](#native-c-juce-8-plugin-suite)
+[![Synthesizer Engine](https://img.shields.io/badge/DSP%20Engine-C%2B%2B20%20%2F%20JUCE%208-blue.svg)](#native-c-juce-8-plugin-suite--targets)
 [![Web Audio API](https://img.shields.io/badge/Web%20Audio-100%25%20Procedural%20Worklet-brightgreen.svg)](#zero-install-web-audio-application)
 [![Verification Suite](https://img.shields.io/badge/Verification-100%25%20Pass%20(58%20Suites)-success.svg)](#master-verification--quality-assurance)
 [![Synthesis Purity](https://img.shields.io/badge/Zero--PCM%20Audit-0%20Sample%20Tables%20(100%25%20Physical)-orange.svg)](#zero-pcm-procedural-purity-guarantee)
@@ -13,17 +13,18 @@
 ## Table of Contents
 
 1. [Architectural Overview & Core Innovations](#architectural-overview--core-innovations)
-2. [German Functionalist Industrial Design](#german-functionalist-industrial-design)
-3. [The Five Sound Decks & Signal Flow](#the-five-sound-decks--signal-flow)
-4. [Bespoke 4-Mode 60 FPS Vector CRT Visualizer](#bespoke-4-mode-60-fps-vector-crt-visualizer)
-5. [16 Curated Factory Presets](#16-curated-factory-presets)
-6. [40-Parameter APVTS & Web Audio Taxonomy](#40-parameter-apvts--web-audio-taxonomy)
-7. [Native C++ JUCE 8 Plugin Suite & Targets](#native-c-juce-8-plugin-suite--targets)
-8. [Zero-Install Web Audio Application](#zero-install-web-audio-application)
-9. [Build & Quickstart Instructions](#build--quickstart-instructions)
-10. [Master Verification & Quality Assurance](#master-verification--quality-assurance)
-11. [Zero-PCM Procedural Purity Guarantee](#zero-pcm-procedural-purity-guarantee)
-12. [License & Attributions](#license--attributions)
+2. [Documentation (`docs/`)](#documentation-docs)
+3. [German Functionalist Industrial Design](#german-functionalist-industrial-design)
+4. [The Five Sound Decks & Signal Flow](#the-five-sound-decks--signal-flow)
+5. [Bespoke 4-Mode 60 FPS Vector CRT Visualizer](#bespoke-4-mode-60-fps-vector-crt-visualizer)
+6. [16 Curated Factory Presets](#16-curated-factory-presets)
+7. [40-Parameter APVTS & Web Audio Taxonomy](#40-parameter-apvts--web-audio-taxonomy)
+8. [Native C++ JUCE 8 Plugin Suite & Targets](#native-c-juce-8-plugin-suite--targets)
+9. [Zero-Install Web Audio Application](#zero-install-web-audio-application)
+10. [Build & Quickstart Instructions](#build--quickstart-instructions)
+11. [Master Verification & Quality Assurance](#master-verification--quality-assurance)
+12. [Zero-PCM Procedural Purity Guarantee](#zero-pcm-procedural-purity-guarantee)
+13. [License & Attributions](#license--attributions)
 
 ---
 
@@ -71,6 +72,16 @@ Poopenfarten II (`PF-02`) departs completely from conventional wavetable playbac
 - **Hard Real-Time Determinism**: Zero heap allocations (`malloc`/`operator new`) on audio threads across both C++ JUCE 8 and Web AudioWorklet implementations.
 - **Mono Cancellation Immunity**: Tri-phase bucket-brigade device (BBD) chorus modulation configured at $0^\circ, 120^\circ, 240^\circ$, mathematically guaranteeing non-zero acoustic power upon mono-summing across all audible frequencies ($20\text{ Hz} - 20\text{ kHz}$).
 - **Dual Bit-Compatible Codebase**: Mirrored architectures across native desktop C++20 (`source/`) and client-side JavaScript Web Audio API (`web/`).
+
+---
+
+## Documentation (`docs/`)
+
+Comprehensive mathematical derivations, testing specifications, and verification sign-off reports are organized inside [`docs/`](docs/):
+
+- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — Complete physical equations, continuous $\mathfrak{so}(16)$ Lie algebra derivations, tangent orthogonality and mono-sum immunity proofs, and signal-flow Mermaid diagrams.
+- **[`docs/TESTING.md`](docs/TESTING.md)** — 4-tier E2E opaque-box verification methodology, numerical invariant tolerances, and automated Zero-PCM audit specifications.
+- **[`docs/VERIFICATION_CHECKLIST.md`](docs/VERIFICATION_CHECKLIST.md)** — Master empirical sign-off matrix across all 47 instrument features, stress probes, and build targets.
 
 ---
 
@@ -207,13 +218,13 @@ The parameter system maintains bit-identical ranges, defaults, and IDs between t
 
 ## Native C++ JUCE 8 Plugin Suite & Targets
 
-The native desktop suite is built with **JUCE 8** and **MSVC C++20**, outputting bit-exact, hard real-time audio plugins and standalone binaries:
+The native desktop suite is built with **JUCE 8** and **C++20**, outputting bit-exact, hard real-time audio plugins and standalone binaries across Windows, Linux, and macOS Universal:
 
 | Target Name | Format | Binary Path | Binary Size | Features & Platform |
 |:---|:---:|:---|:---:|:---|
-| **PF-02 Standalone** | Executable (`.exe`) | `build/poopenfarten2_artefacts/Release/Standalone/PF-02.exe` | 8.24 MB | Native Windows x64 executable hosting embedded WebView2 UI bridge |
-| **PF-02 VST3** | VST3 Bundle (`.vst3`) | `build/poopenfarten2_artefacts/Release/VST3/PF-02.vst3` | 6.88 MB | Steinberg VST3 specification compliant with sample-accurate automation |
-| **PF-02 CLAP** | CLAP Plugin (`.clap`) | `build/poopenfarten2_artefacts/Release/CLAP/PF-02.clap` | 6.85 MB | CLAP audio standard via `clap-juce-extensions`, non-destructive modulation |
+| **PF-02 Standalone** | Executable (`.exe`) | `releases/PF-02.exe` | 8.24 MB | Native Windows x64 executable hosting embedded WebView2 UI bridge |
+| **PF-02 VST3** | VST3 Bundle (`.vst3`) | `releases/PF-02.vst3` | 6.88 MB | Steinberg VST3 specification compliant with sample-accurate automation |
+| **PF-02 CLAP** | CLAP Plugin (`.clap`) | `releases/PF-02.clap` | 6.85 MB | CLAP audio standard via `clap-juce-extensions`, non-destructive modulation |
 | **PF-02 Headless Tests** | Test Binary (`.exe`) | `build/source/tests/Release/poopenfarten2_headless_dsp_tests.exe` | ~1.2 MB | Decoupled 4-tier DSP test harness for CI/CD and verification |
 
 ---
@@ -250,17 +261,15 @@ cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
 # Compile all plugin targets and headless tests
 cmake --build build --config Release --parallel
 
-# The resulting binaries will be placed in:
-# build/poopenfarten2_artefacts/Release/Standalone/PF-02.exe
-# build/poopenfarten2_artefacts/Release/VST3/PF-02.vst3
-# build/poopenfarten2_artefacts/Release/CLAP/PF-02.clap
+# Package Windows release archives into releases/
+python scripts/package_release.py
 ```
 
 ---
 
 ## Master Verification & Quality Assurance
 
-To execute all 58 automated test suites across C++, Web, and the Zero-PCM source auditor:
+To execute all automated test suites across C++, Web, and the Zero-PCM source auditor:
 ```powershell
 scripts\run_all_verifications.bat
 ```
@@ -273,15 +282,15 @@ scripts\run_all_verifications.bat
    # Or via npm alias:
    npm run audit:pcm
    ```
-2. **Web Audio & Node.js Verification Suite**:
+2. **Web Audio, UI & Node.js Verification Suite**:
    ```powershell
    npm test
    # Or full verification alias:
    npm run verify:all
    ```
-3. **Web UI & CRT Visualizer Verification**:
+3. **GitHub-Flavored Markdown (GFM) & KaTeX Math Compliance Audit**:
    ```powershell
-   node web/test_ui_verify.mjs
+   python scripts/audit_gfm_math.py
    ```
 4. **C++ Headless 4-Tier DSP Test Runner**:
    ```powershell

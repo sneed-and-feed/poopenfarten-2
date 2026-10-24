@@ -37,15 +37,6 @@ if exist "build\source\tests\Release\poopenfarten2_headless_dsp_tests.exe" (
     ) else (
         echo [SUCCESS] Stage 3 Headless C++ DSP Tests PASSED.
     )
-) else if exist "build_test\Release\poopenfarten2_headless_dsp_tests.exe" (
-    echo Running C++ Headless Test Suite from build_test\Release
-    build_test\Release\poopenfarten2_headless_dsp_tests.exe --all
-    if !ERRORLEVEL! neq 0 (
-        echo [ERROR] Stage 3 Headless C++ DSP Tests FAILED.
-        set EXIT_CODE=1
-    ) else (
-        echo [SUCCESS] Stage 3 Headless C++ DSP Tests PASSED.
-    )
 ) else if exist "build\poopenfarten2_headless_dsp_tests.exe" (
     echo Running C++ Headless Test Suite from build
     build\poopenfarten2_headless_dsp_tests.exe --all

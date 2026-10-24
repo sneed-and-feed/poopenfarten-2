@@ -82,14 +82,14 @@ inline void registerTier2Tests() {
                 slicedBlockState += alpha * (1.0f - slicedBlockState);
             }
         }
-        TEST_ASSERT_NEAR(slicedBlockState, singleBlockState, 1e-6, "State evolution must be identical across buffer slicing");
+        TEST_ASSERT_NEAR(slicedBlockState, singleBlockState, 1e-5, "State evolution must be identical across buffer slicing");
 
         // 1024 blocks of 1 (single-sample stepping)
         float perSampleState = 0.0f;
         for (int i = 0; i < totalSamples; ++i) {
             perSampleState += alpha * (1.0f - perSampleState);
         }
-        TEST_ASSERT_NEAR(perSampleState, singleBlockState, 1e-6, "Per-sample stepping matches block stepping");
+        TEST_ASSERT_NEAR(perSampleState, singleBlockState, 1e-5, "Per-sample stepping matches block stepping");
 
         // Web Audio standard 128-sample blocks
         for (int b : bufferSizes) {

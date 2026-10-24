@@ -170,15 +170,20 @@ set(PF02_WEB_ASSETS_ZIP "${CMAKE_CURRENT_BINARY_DIR}/web_assets_pf02.zip")
 if(NOT EXISTS "${PF02_WEB_ASSETS_ZIP}")
     message(STATUS "Packaging initial web assets archive: ${PF02_WEB_ASSETS_ZIP}")
     execute_process(
-        COMMAND ${CMAKE_COMMAND} -E tar cf "${PF02_WEB_ASSETS_ZIP}" --format=zip .
+        COMMAND ${CMAKE_COMMAND} -E tar cf "${PF02_WEB_ASSETS_ZIP}" --format=zip index.html factory_presets.json css js
         WORKING_DIRECTORY "${PF02_WEB_DIR}"
     )
 endif()
 
-file(GLOB_RECURSE PF02_WEB_FILES "${PF02_WEB_DIR}/*")
+file(GLOB_RECURSE PF02_WEB_FILES
+    "${PF02_WEB_DIR}/index.html"
+    "${PF02_WEB_DIR}/factory_presets.json"
+    "${PF02_WEB_DIR}/css/*"
+    "${PF02_WEB_DIR}/js/*"
+)
 add_custom_command(
     OUTPUT "${PF02_WEB_ASSETS_ZIP}"
-    COMMAND ${CMAKE_COMMAND} -E tar cf "${PF02_WEB_ASSETS_ZIP}" --format=zip .
+    COMMAND ${CMAKE_COMMAND} -E tar cf "${PF02_WEB_ASSETS_ZIP}" --format=zip index.html factory_presets.json css js
     WORKING_DIRECTORY "${PF02_WEB_DIR}"
     DEPENDS ${PF02_WEB_FILES}
     COMMENT "Packaging PF-02 web assets into web_assets_pf02.zip"

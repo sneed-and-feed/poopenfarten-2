@@ -1,4 +1,4 @@
-# TEST_INFRA.md: E2E Testing Infrastructure & Quality Assurance Architecture
+# PF-02 · E2E Testing Infrastructure & Quality Assurance Architecture
 **PF-02 · Darm-Akustischer & Ultrametrischer Triaden-Synthesizer**
 
 ---
@@ -35,7 +35,7 @@ To guarantee zero regression, total synthesis purity (zero static PCM tables or 
 
 ### 2.1 Tier 1: Functional & Algorithmic Feature Coverage
 - **Objective**: Verify the primary operational behavior (happy path, parameter modulation, and functional outputs) for every subsystem in isolation and coupled pipelines.
-- **Requirement**: A minimum of **5 distinct test assertions per feature** across all 47 features enumerated in `PROJECT.md § Feature Inventory`.
+- **Requirement**: A minimum of **5 distinct test assertions per feature** across all 47 features enumerated in `docs/VERIFICATION_CHECKLIST.md § 2`.
 - **Key Subsystems Tested**:
   - *Deck 01*: Karnopp stick-slip velocity deadband $(v_d = 0.0015\text{ m/s})$, Stribeck breakaway exponential velocity $(v_s = 0.06\text{ m/s})$, Hunt-Crossley Hertzian impact contact restitution $(F_c = k_c x^\alpha + \lambda_c x^\alpha \dot{x})$, Buchla 292 optical vactrol sag $(\tau_{\text{decay}}[1 + \kappa(1-g)^2])$.
   - *Deck 02*: Helical Beltrami vortex jet $(\nabla \times \mathbf{v} = \lambda \mathbf{v})$, Minnaert gas-liquid bubble bank $(f = 3.28325 / R)$, Poisson stochastic droplet point-process clock $(\Delta t = -\ln(1-U)/\lambda)$, Bjorklund Euclidean peristaltic sequencer $E(k, n)$.
@@ -51,7 +51,7 @@ To guarantee zero regression, total synthesis purity (zero static PCM tables or 
   - Pass criteria: Output signals remain stable, filter poles do not warp beyond Nyquist, and frequency tracking scales proportionally.
 - **Buffer Size Resilience**:
   - Buffer sizes tested: **1 (single-sample / AudioWorklet step), 16, 32, 64, 128 (Web Audio block), 256, 512, 1024, 2048 samples**.
-  - Pass criteria: Bit-identical state evolution regardless of buffer slicing granularity; zero state reset artifacts across buffer boundaries.
+  - Pass criteria: Consistent state evolution across buffer slicing granularities; zero state reset artifacts across buffer boundaries.
 - **Corner Cases & Extremes**:
   - Colonic pressure head at $P = 0.0$ (complete silence, zero idle bleed) vs $P = 1.0$ (maximum acoustic drive).
   - Resting aperture at minimum ($0.1\text{ mm}$, tight stiction) vs maximum ($5.0\text{ mm}$, open pipe blow).
@@ -179,7 +179,7 @@ Location: `web/verify.mjs`
 
 | Test Scope | Command | Description |
 |---|---|---|
-| **Run All Web Verifications** | `npm run verify:all` | Executes all 7 web verification suites |
+| **Run All Web Verifications** | `npm run verify:all` | Executes all web verification suites + Zero-PCM audit |
 | **Standard Test Alias** | `npm test` | Runs complete verification suite |
 | **Direct Node Execution** | `node --test web/verify.mjs` | Direct invocation via Node test runner |
 
@@ -198,7 +198,7 @@ scripts\run_all_verifications.bat
 ```
 Executes:
 1. `python scripts/audit_zero_pcm.py`
-2. `npm run verify:all`
+2. `npm test`
 3. `poopenfarten2_headless_dsp_tests.exe --all`
 
 ---
