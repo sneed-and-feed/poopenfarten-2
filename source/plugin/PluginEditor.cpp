@@ -191,6 +191,13 @@ juce::WebBrowserComponent::Options Pf02AudioProcessorEditor::createWebOptions(Pf
         R"js(
 (function() {
   var webviewListeners = [];
+  window.__pf02_postToHost = function(msg) {
+    if (window.__JUCE__ && window.__JUCE__.backend && typeof window.__JUCE__.backend.emitEvent === 'function') {
+      var evtType = (msg && msg.type) ? msg.type : 'message';
+      window.__JUCE__.backend.emitEvent(evtType, msg);
+    }
+  };
+
   if (typeof window.chrome === 'undefined') window.chrome = {};
   if (typeof window.chrome.webview === 'undefined') {
     window.chrome.webview = {
@@ -201,10 +208,7 @@ juce::WebBrowserComponent::Options Pf02AudioProcessorEditor::createWebOptions(Pf
         webviewListeners = webviewListeners.filter(function(l) { return l !== listener; });
       },
       postMessage: function(msg) {
-        if (window.__JUCE__ && window.__JUCE__.backend) {
-          var evtType = (msg && msg.type) ? msg.type : 'message';
-          window.__JUCE__.backend.emitEvent(evtType, msg);
-        }
+        window.__pf02_postToHost(msg);
       }
     };
   } else {
@@ -213,17 +217,6 @@ juce::WebBrowserComponent::Options Pf02AudioProcessorEditor::createWebOptions(Pf
       window.chrome.webview.addEventListener = function(type, listener, options) {
         if (type === 'message') webviewListeners.push(listener);
         return origAdd(type, listener, options);
-      };
-    }
-    var origPost = window.chrome.webview.postMessage ? window.chrome.webview.postMessage.bind(window.chrome.webview) : null;
-    if (origPost) {
-      window.chrome.webview.postMessage = function(msg) {
-        if (window.__JUCE__ && window.__JUCE__.backend) {
-          var evtType = (msg && msg.type) ? msg.type : 'message';
-          window.__JUCE__.backend.emitEvent(evtType, msg);
-        } else {
-          origPost(msg);
-        }
       };
     }
   }
@@ -235,14 +228,22 @@ juce::WebBrowserComponent::Options Pf02AudioProcessorEditor::createWebOptions(Pf
     }
   };
 
-  if (window.__JUCE__ && window.__JUCE__.backend) {
-    window.__JUCE__.backend.addEventListener('telemetryFrame', function(frame) {
-      window.__pf02_dispatchToWebview({ type: 'telemetryFrame', frame: frame });
-    });
-    window.__JUCE__.backend.addEventListener('paramUpdate', function(data) {
-      window.__pf02_dispatchToWebview({ type: 'paramUpdate', paramId: data.paramId, value: data.value });
-    });
+  var juceListenersAttached = false;
+  function attachJuceBackendListeners() {
+    if (juceListenersAttached) return;
+    if (window.__JUCE__ && window.__JUCE__.backend && typeof window.__JUCE__.backend.addEventListener === 'function') {
+      juceListenersAttached = true;
+      window.__JUCE__.backend.addEventListener('telemetryFrame', function(frame) {
+        window.__pf02_dispatchToWebview({ type: 'telemetryFrame', frame: frame });
+      });
+      window.__JUCE__.backend.addEventListener('paramUpdate', function(data) {
+        window.__pf02_dispatchToWebview({ type: 'paramUpdate', paramId: data.paramId, value: data.value });
+      });
+    }
   }
+
+  attachJuceBackendListeners();
+  window.addEventListener('DOMContentLoaded', attachJuceBackendListeners);
 
   window.addEventListener('contextmenu', function(e) { if (!e.defaultPrevented) e.preventDefault(); }, false);
 })();

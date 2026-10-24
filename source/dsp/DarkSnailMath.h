@@ -48,11 +48,25 @@ public:
                 }
             }
         }
+        rebuildSkewCache();
+    }
+
+    void rebuildSkewCache() noexcept {
+        for (size_t j = 0; j < M; ++j) {
+            for (size_t k = 0; k < M; ++k) {
+                for (size_t i = 0; i < Cu; ++i) {
+                    mSkewWeights[j][k][i] = mWeights[i][j][k] - mWeights[i][k][j];
+                }
+            }
+        }
     }
 
     void setWeight(size_t i, size_t j, size_t k, float val) noexcept {
         if (i < Cu && j < M && k < M) {
             mWeights[i][j][k] = val;
+            const float skew = mWeights[i][j][k] - mWeights[i][k][j];
+            mSkewWeights[j][k][i] = skew;
+            mSkewWeights[k][j][i] = -skew;
         }
     }
 
@@ -62,7 +76,7 @@ public:
 
     // Evaluates S(W, i, j, k) = W(i, j, k) - W(i, k, j)
     [[nodiscard]] inline float skewElement(size_t i, size_t j, size_t k) const noexcept {
-        return mWeights[i][j][k] - mWeights[i][k][j];
+        return mSkewWeights[j][k][i];
     }
 
     // Contracts u into an effective skew-symmetric matrix A(u) in so(M):
@@ -72,9 +86,10 @@ public:
         for (size_t j = 0; j < M; ++j) {
             A[j][j] = 0.0f;
             for (size_t k = j + 1; k < M; ++k) {
+                const auto& skewRow = mSkewWeights[j][k];
                 float val = 0.0f;
                 for (size_t i = 0; i < Cu; ++i) {
-                    val += u[i] * (mWeights[i][j][k] - mWeights[i][k][j]);
+                    val += u[i] * skewRow[i];
                 }
                 A[j][k] = val;
                 A[k][j] = -val; // Exact skew-symmetry by construction
@@ -153,6 +168,7 @@ public:
 
 private:
     Tensor3 mWeights {};
+    std::array<std::array<VectorCu, M>, M> mSkewWeights {};
 };
 
 // ============================================================================

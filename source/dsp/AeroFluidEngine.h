@@ -149,6 +149,7 @@ private:
     // Filters for fluid viscosity acoustic damping
     OnePoleLowpass mViscosityFilter;
     OnePoleLowpass mGurgleFilter;
+    float mLastViscosity { -1.0f };
 };
 
 } // namespace pf02::dsp

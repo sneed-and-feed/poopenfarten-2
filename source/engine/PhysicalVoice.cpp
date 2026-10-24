@@ -58,7 +58,7 @@ void PhysicalVoice::updateFrequencyGlide() noexcept {
 
 void PhysicalVoice::setTargetPitchMidi(float midiNote, bool immediate, float freqHz) noexcept {
     mTargetMidiNote = midiNote;
-    if (std::isfinite(freqHz) && freqHz > 0.0f) {
+    if (dsp::isFiniteFloat(freqHz) && freqHz > 0.0f) {
         mBaseTargetFreqHz = freqHz;
         mTargetFreqHz = mBaseTargetFreqHz * std::pow(2.0f, mPitchBendOffsetSemitones / 12.0f);
     } else {
@@ -428,11 +428,13 @@ void PhysicalVoice::processSample(float& outL, float& outR, float externalPressu
             localExciterParams.tissueHardness = mMucosalParams.tissueHardness + paramBlend * (2.95f - mMucosalParams.tissueHardness);
             const float bPress = 0.36f * std::exp(-tSec / 0.028f) * bInt;
             localExciterParams.colonicPressure = basePressure + paramBlend * (bPress - basePressure);
+            localFluidParams.multiphaseMoisture = mFluidParams.multiphaseMoisture * (1.0f - paramBlend);
+            localFluidParams.poissonDropletRate = mFluidParams.poissonDropletRate * (1.0f - paramBlend);
 
             burstModalInject = subThud * 0.95f + diracClick * 0.70f;
             burstDirectL = subThud * 0.92f + diracClick * 0.28f;
             burstDirectR = subThud * 0.92f + diracClick * 0.28f;
-            fluidMixBoost = 0.25f + burstWin * (0.04f - 0.25f);
+            fluidMixBoost = 0.25f + paramBlend * (0.0f - 0.25f);
         } else if (mBurstMode == BurstMode::Breakaway) {
             // 2. KARNOPP-ABRISS: Violent 31 Hz stick-slip friction flutter & mucosal raspberry tear
             constexpr float flutterRate = 31.0f;

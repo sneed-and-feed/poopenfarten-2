@@ -50,6 +50,7 @@ void AeroFluidEngine::reset() noexcept {
     mEuclideanPhase = 0.0f;
     mEuclideanCurrentStep = 0;
     mEuclideanStepTriggered = false;
+    mLastViscosity = -1.0f;
 }
 
 void AeroFluidEngine::triggerBubble(float radiusMm, float intensity, float chirpRate) noexcept {
@@ -286,8 +287,11 @@ float AeroFluidEngine::processSample(
 
     // Cutoff frequency drops with viscosity: 8000 Hz down to 600 Hz
     const float visc = std::clamp(params.fluidViscosity, 0.0f, 1.0f);
-    const float viscCutoff = 8000.0f * std::pow(0.075f, visc);
-    mViscosityFilter.setCutoff(mSampleRate, viscCutoff);
+    if (std::abs(visc - mLastViscosity) > 1.0e-5f) {
+        const float viscCutoff = 8000.0f * std::pow(0.075f, visc);
+        mViscosityFilter.setCutoff(mSampleRate, viscCutoff);
+        mLastViscosity = visc;
+    }
 
     const float outSignal = mViscosityFilter.process(rawAeroFluid);
     return flushDenormal(outSignal);

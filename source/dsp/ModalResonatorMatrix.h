@@ -158,6 +158,16 @@ private:
     float mLorenzQSpread { 1.0f };
     float mLorenzPanOffset { 0.0f };
 
+    // Cached SVF parameter state to avoid redundant per-sample transcendental recalculation
+    bool mCoeffsDirty { true };
+    float mLastF0 { -1.0f };
+    GeometricManifold mLastManifold { GeometricManifold::GlottalColonic };
+    float mLastMorph { -1.0f };
+    DampingProfile mLastDamping { DampingProfile::MucosalTissue };
+    float mLastSpread { -1.0f };
+    int mCachedDampingProfile { -1 };
+    ModalArray mCachedBaseQ {};
+
     // Golden Ratio Stereo Panning Coefficients (L/R gains)
     std::array<float, kNumModes> mPanL {};
     std::array<float, kNumModes> mPanR {};

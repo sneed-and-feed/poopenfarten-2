@@ -48,6 +48,13 @@ void ModalResonatorMatrix::reset() noexcept {
     mTriadCascade.reset();
     mCachedBoundaryMode = -1;
     mCachedCavityModes.fill(0.0f);
+
+    mCoeffsDirty = true;
+    mLastF0 = -1.0f;
+    mLastMorph = -1.0f;
+    mLastSpread = -1.0f;
+    mCachedDampingProfile = -1;
+    mCachedBaseQ.fill(15.0f);
 }
 
 void ModalResonatorMatrix::dampStates(float factor) noexcept {
@@ -146,14 +153,18 @@ void ModalResonatorMatrix::setLorenzModulation(
     mLorenzFreqMult = freqMultipliers;
     mLorenzQSpread = std::clamp(qSpreadFactor, 0.2f, 5.0f);
     mLorenzPanOffset = panOffsetRad;
+    mCoeffsDirty = true;
 }
 
 void ModalResonatorMatrix::updateFilterCoefficients(const ModalMatrixParams& params) noexcept {
     ModalArray baseRatios {};
     computeBaseRatios(params.manifold, params.manifoldMorph, baseRatios);
 
-    ModalArray baseQ {};
-    getDampingQ(params.damping, baseQ);
+    const int dampingInt = static_cast<int>(params.damping);
+    if (dampingInt != mCachedDampingProfile) {
+        getDampingQ(params.damping, mCachedBaseQ);
+        mCachedDampingProfile = dampingInt;
+    }
 
     const float f0 = std::clamp(params.fundamentalHz, 7.0f, 2000.0f);
     const float nyquist = mSampleRate * 0.49f;
@@ -169,7 +180,7 @@ void ModalResonatorMatrix::updateFilterCoefficients(const ModalMatrixParams& par
 
         // Lorenz Q-factor spread: spreads low vs high modes
         const float modeSpread = 1.0f + (mLorenzQSpread - 1.0f) * (static_cast<float>(i) - 7.5f) / 8.0f;
-        const float qMode = std::clamp(baseQ[i] * std::max(0.2f, modeSpread), 1.0f, 400.0f);
+        const float qMode = std::clamp(mCachedBaseQ[i] * std::max(0.2f, modeSpread), 1.0f, 400.0f);
 
         // Discrete frequency warp and damping
         const float g = std::tan(kPi * (fClamped / mSampleRate));
@@ -192,6 +203,13 @@ void ModalResonatorMatrix::updateFilterCoefficients(const ModalMatrixParams& par
         mPanL[i] = std::cos(kHalfPi * normPan);
         mPanR[i] = std::sin(kHalfPi * normPan);
     }
+
+    mLastF0 = f0;
+    mLastManifold = params.manifold;
+    mLastMorph = params.manifoldMorph;
+    mLastDamping = params.damping;
+    mLastSpread = params.stereoSpread;
+    mCoeffsDirty = false;
 }
 
 void ModalResonatorMatrix::processSample(
@@ -200,7 +218,16 @@ void ModalResonatorMatrix::processSample(
     float& outL,
     float& outR) noexcept
 {
-    updateFilterCoefficients(params);
+    const float f0 = std::clamp(params.fundamentalHz, 7.0f, 2000.0f);
+    if (mCoeffsDirty ||
+        f0 != mLastF0 ||
+        params.manifold != mLastManifold ||
+        params.manifoldMorph != mLastMorph ||
+        params.damping != mLastDamping ||
+        params.stereoSpread != mLastSpread)
+    {
+        updateFilterCoefficients(params);
+    }
 
     // 1. Read Acyclic Delay Diffuser Taps for Householder tail
     const float diff1 = mDiffuserFilter1.process(mDelay1.readHermite(mDelay1Samples));

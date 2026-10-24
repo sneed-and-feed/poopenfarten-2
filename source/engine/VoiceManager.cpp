@@ -251,7 +251,7 @@ void VoiceManager::noteOn(int midiNote, float velocity, float freqHz) noexcept {
         // 4 voices assigned to a single note with detuning offsets and staggered initial phases
         for (size_t v = 0; v < 4; ++v) {
             const float detunedMidi = static_cast<float>(prioNote) + (kUnisonDetuneCents[v] / 100.0f);
-            const float detunedFreq = (std::isfinite(prioFreqHz) && prioFreqHz > 0.0f)
+            const float detunedFreq = (dsp::isFiniteFloat(prioFreqHz) && prioFreqHz > 0.0f)
                 ? (prioFreqHz * std::pow(2.0f, kUnisonDetuneCents[v] / 1200.0f))
                 : 0.0f;
             if (!isLegato) {
@@ -291,7 +291,7 @@ void VoiceManager::noteOff(int midiNote, float velocity) noexcept {
             int prioNote = getPriorityNote(prioVel, prioFreqHz);
             for (size_t v = 0; v < 4; ++v) {
                 const float detunedMidi = static_cast<float>(prioNote) + (kUnisonDetuneCents[v] / 100.0f);
-                const float detunedFreq = (std::isfinite(prioFreqHz) && prioFreqHz > 0.0f)
+                const float detunedFreq = (dsp::isFiniteFloat(prioFreqHz) && prioFreqHz > 0.0f)
                     ? (prioFreqHz * std::pow(2.0f, kUnisonDetuneCents[v] / 1200.0f))
                     : 0.0f;
                 mVoices[v].setTargetPitchMidi(detunedMidi, false, detunedFreq);
@@ -312,7 +312,16 @@ void VoiceManager::allNotesOff() noexcept {
 }
 
 void VoiceManager::triggerKineticBurst(std::string_view burstType, float velocity) noexcept {
-    mVoices[0].triggerKineticBurst(burstType, velocity);
+    bool triggeredHeld = false;
+    for (auto& v : mVoices) {
+        if (v.isActive() && v.isNoteHeld()) {
+            v.triggerKineticBurst(burstType, velocity);
+            triggeredHeld = true;
+        }
+    }
+    if (!triggeredHeld) {
+        mVoices[0].triggerKineticBurst(burstType, velocity);
+    }
 }
 
 // ============================================================================

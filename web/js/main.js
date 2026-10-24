@@ -339,7 +339,7 @@ class PfApp {
 
   _updateChoiceButtonsFromParams() {
     const updateGroup = (groupId, paramId) => {
-      const val = this.parameters[paramId];
+      const val = Math.round(Number(this.parameters[paramId] ?? 0));
       const btns = document.querySelectorAll(`#${groupId} .pf02-segment-btn`);
       btns.forEach(btn => {
         if (parseInt(btn.dataset.val, 10) === val) {
@@ -359,11 +359,21 @@ class PfApp {
 
     const btnChorus = document.getElementById('btn-chorus-enable');
     if (btnChorus) {
-      btnChorus.classList.toggle('is-active', this.parameters.param_dimension_d_enable === 1);
+      btnChorus.classList.toggle('is-active', Math.round(Number(this.parameters.param_dimension_d_enable ?? 1)) === 1);
     }
     const btnRetraction = document.getElementById('btn-spherical-retraction');
     if (btnRetraction) {
-      btnRetraction.classList.toggle('is-active', this.parameters.param_spherical_retraction === 1);
+      btnRetraction.classList.toggle('is-active', Math.round(Number(this.parameters.param_spherical_retraction ?? 1)) === 1);
+    }
+    const btnPower = document.getElementById('btn-power-switch');
+    if (btnPower) {
+      const powerOn = Math.round(Number(this.parameters.param_power_active ?? 1)) === 1;
+      btnPower.classList.toggle('is-active', powerOn);
+      const statusText = btnPower.querySelector('.pf02-power-status');
+      if (statusText) statusText.textContent = powerOn ? 'AKTIV' : 'STANDBY';
+      if (this.visualizer) {
+        this.visualizer.setPower(powerOn);
+      }
     }
   }
 
@@ -726,6 +736,18 @@ class PfApp {
   }
 
   // --- Parameter Dispatch & WebView2 Bridge ---
+  _postToHost(msg) {
+    if (typeof window === 'undefined' || !msg) return;
+    if (typeof window.__pf02_postToHost === 'function') {
+      window.__pf02_postToHost(msg);
+    } else if (window.__JUCE__ && window.__JUCE__.backend && typeof window.__JUCE__.backend.emitEvent === 'function') {
+      const evtType = msg.type || 'message';
+      window.__JUCE__.backend.emitEvent(evtType, msg);
+    } else if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+      window.chrome.webview.postMessage(msg);
+    }
+  }
+
   setParameter(paramId, value, broadcast = true) {
     this.parameters[paramId] = value;
 
@@ -740,14 +762,12 @@ class PfApp {
     }
 
     if (broadcast) {
-      // 1. Post to WebView2 if running inside JUCE PluginEditor
-      if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-        window.chrome.webview.postMessage({
-          type: 'paramChange',
-          paramId: paramId,
-          value: value
-        });
-      }
+      // 1. Post to native JUCE / WebView2 host if running inside PluginEditor
+      this._postToHost({
+        type: 'paramChange',
+        paramId: paramId,
+        value: value
+      });
 
       // 2. Dispatch custom event for Web Audio engine
       window.dispatchEvent(new CustomEvent('pf02:paramChange', {
@@ -769,12 +789,10 @@ class PfApp {
       }
     }
 
-    if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
-      window.chrome.webview.postMessage({
-        type: eventType,
-        ...payload
-      });
-    }
+    this._postToHost({
+      type: eventType,
+      ...payload
+    });
 
     window.dispatchEvent(new CustomEvent(`pf02:${eventType}`, {
       detail: payload

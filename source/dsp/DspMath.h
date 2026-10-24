@@ -75,6 +75,12 @@ private:
 // Bitwise IEEE 754 inspection ensures 100% immunity to compiler -ffast-math
 // optimization which would otherwise optimize away std::isfinite().
 // ============================================================================
+[[nodiscard]] inline bool isFiniteFloat(float val) noexcept {
+    uint32_t bits;
+    std::memcpy(&bits, &val, sizeof(float));
+    return ((bits >> 23) & 0xFFu) != 0xFFu;
+}
+
 [[nodiscard]] inline float flushDenormal(float val) noexcept {
     uint32_t bits;
     std::memcpy(&bits, &val, sizeof(float));
@@ -150,7 +156,7 @@ public:
     }();
 
     [[nodiscard]] static inline float sin(float angle) noexcept {
-        if (!std::isfinite(angle)) [[unlikely]] {
+        if (!isFiniteFloat(angle)) [[unlikely]] {
             return 0.0f;
         }
         const float norm = angle * (static_cast<float>(kTableSize) / kTwoPi);
@@ -295,11 +301,11 @@ public:
     }
 
     void setTarget(float target) noexcept {
-        mTarget = std::isfinite(target) ? target : 0.0f;
+        mTarget = isFiniteFloat(target) ? target : 0.0f;
     }
 
     void snapTo(float value) noexcept {
-        const float v = std::isfinite(value) ? value : 0.0f;
+        const float v = isFiniteFloat(value) ? value : 0.0f;
         mTarget = v;
         mCurrent = v;
     }
@@ -337,7 +343,7 @@ public:
 
     void setCutoff(float sampleRate, float cutoffHz) noexcept {
         const float fs = (sampleRate > 100.0f) ? sampleRate : 48000.0f;
-        const float cleanFc = std::isfinite(cutoffHz) ? cutoffHz : 1000.0f;
+        const float cleanFc = isFiniteFloat(cutoffHz) ? cutoffHz : 1000.0f;
         const float fc = std::clamp(cleanFc, 1.0f, fs * 0.495f);
         mAlpha = 1.0f - std::exp(-kTwoPi * (fc / fs));
     }
@@ -366,7 +372,7 @@ public:
 
     void setCutoff(float sampleRate, float cutoffHz) noexcept {
         const float fs = (sampleRate > 100.0f) ? sampleRate : 48000.0f;
-        const float cleanFc = std::isfinite(cutoffHz) ? cutoffHz : 1000.0f;
+        const float cleanFc = isFiniteFloat(cutoffHz) ? cutoffHz : 1000.0f;
         const float fc = std::clamp(cleanFc, 1.0f, fs * 0.495f);
         mAlpha = 1.0f / (1.0f + kTwoPi * (fc / fs));
     }
@@ -408,7 +414,7 @@ public:
 
     // Read with fractional delay using 4-point Hermite cubic interpolation
     [[nodiscard]] inline float readHermite(float delaySamples) const noexcept {
-        if (!std::isfinite(delaySamples)) [[unlikely]] {
+        if (!isFiniteFloat(delaySamples)) [[unlikely]] {
             delaySamples = 1.0f;
         }
         const float clampedDelay = std::clamp(delaySamples, 1.0f, static_cast<float>(Capacity - 4));
@@ -426,7 +432,7 @@ public:
 
     // Read with linear fractional interpolation
     [[nodiscard]] inline float readLinear(float delaySamples) const noexcept {
-        if (!std::isfinite(delaySamples)) [[unlikely]] {
+        if (!isFiniteFloat(delaySamples)) [[unlikely]] {
             delaySamples = 0.0f;
         }
         const float clampedDelay = std::clamp(delaySamples, 0.0f, static_cast<float>(Capacity - 2));

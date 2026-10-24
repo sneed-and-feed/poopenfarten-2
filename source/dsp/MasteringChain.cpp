@@ -190,7 +190,7 @@ void MasteringChain::process(
 
     // C^1 Soft-Knee Asymptotic Saturator (Knee = 0.72, Ceiling = 0.98) — never flat-tops
     auto hermiteSaturate = [](float x) noexcept -> float {
-        if (!std::isfinite(x)) [[unlikely]] return 0.0f;
+        if (!isFiniteFloat(x)) [[unlikely]] return 0.0f;
         const float absX = std::abs(x);
         constexpr float kKnee = 0.72f;
         constexpr float kSpan = 0.26f;
@@ -210,7 +210,7 @@ void MasteringChain::process(
 
     // 6. Post-Master Soft-Ceiling & Brickwall Protection (strictly < 0.99, never flat-tops)
     auto softCeiling = [](float x) noexcept -> float {
-        if (!std::isfinite(x)) [[unlikely]] return 0.0f;
+        if (!isFiniteFloat(x)) [[unlikely]] return 0.0f;
         const float absX = std::abs(x);
         if (absX <= 0.85f) return x;
         const float sgn = (x > 0.0f) ? 1.0f : -1.0f;

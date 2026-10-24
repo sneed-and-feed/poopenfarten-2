@@ -125,7 +125,10 @@ void Pf02AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     // 1. Synchronize dirty parameters into the physical modeling engine
     syncDirtyParametersToEngine();
 
-    // 2. Synthesize audio block and parse MIDI via Pf02AudioEngine
+    // 2. Drain lock-free SPSC performance commands from UI thread
+    drainUiCommands();
+
+    // 3. Synthesize audio block and parse MIDI via Pf02AudioEngine
     mAudioEngine.processBlock(buffer, midiMessages);
 }
 
@@ -257,41 +260,104 @@ void Pf02AudioProcessor::parameterChanged(const juce::String& parameterID, float
 }
 
 // ============================================================================
-// Performance Triggers
+// Lock-Free SPSC Performance Triggers (UI Thread -> Audio Thread)
 // ============================================================================
+void Pf02AudioProcessor::enqueueUiCommand(const UiCommand& cmd) noexcept
+{
+    const size_t writeIdx = mCommandWriteIndex.load(std::memory_order_relaxed);
+    const size_t readIdx = mCommandReadIndex.load(std::memory_order_acquire);
+    if ((writeIdx - readIdx) >= kCommandQueueSize) {
+        return; // Queue full
+    }
+    mCommandQueue[writeIdx & (kCommandQueueSize - 1)] = cmd;
+    mCommandWriteIndex.store(writeIdx + 1, std::memory_order_release);
+}
+
+void Pf02AudioProcessor::drainUiCommands() noexcept
+{
+    size_t readIdx = mCommandReadIndex.load(std::memory_order_relaxed);
+    const size_t writeIdx = mCommandWriteIndex.load(std::memory_order_acquire);
+
+    while (readIdx != writeIdx) {
+        const UiCommand cmd = mCommandQueue[readIdx & (kCommandQueueSize - 1)];
+        switch (cmd.type) {
+            case UiCommandType::NoteOn:
+                mAudioEngine.noteOn(cmd.midiNote, cmd.velocity, cmd.freqHz);
+                break;
+            case UiCommandType::NoteOff:
+                mAudioEngine.noteOff(cmd.midiNote, cmd.velocity);
+                break;
+            case UiCommandType::PitchBend:
+                mAudioEngine.pitchBend(cmd.semitones);
+                break;
+            case UiCommandType::AllNotesOff:
+                mAudioEngine.allNotesOff();
+                break;
+            case UiCommandType::KineticBurst: {
+                switch (cmd.burstKind) {
+                    case 1: mAudioEngine.triggerKineticBurst("breakaway", cmd.velocity); break;
+                    case 2: mAudioEngine.triggerKineticBurst("splatter", cmd.velocity); break;
+                    case 3: mAudioEngine.triggerKineticBurst("cavity", cmd.velocity); break;
+                    default: mAudioEngine.triggerKineticBurst("impulse", cmd.velocity); break;
+                }
+                break;
+            }
+        }
+        ++readIdx;
+    }
+
+    mCommandReadIndex.store(readIdx, std::memory_order_release);
+}
+
 void Pf02AudioProcessor::noteOn(int midiNote, float velocity, float freqHz) noexcept
 {
-    mAudioEngine.noteOn(midiNote, velocity, freqHz);
+    UiCommand cmd;
+    cmd.type = UiCommandType::NoteOn;
+    cmd.midiNote = midiNote;
+    cmd.velocity = velocity;
+    cmd.freqHz = freqHz;
+    enqueueUiCommand(cmd);
 }
 
 void Pf02AudioProcessor::noteOff(int midiNote, float velocity) noexcept
 {
-    mAudioEngine.noteOff(midiNote, velocity);
+    UiCommand cmd;
+    cmd.type = UiCommandType::NoteOff;
+    cmd.midiNote = midiNote;
+    cmd.velocity = velocity;
+    enqueueUiCommand(cmd);
 }
 
 void Pf02AudioProcessor::pitchBend(float semitones) noexcept
 {
-    mAudioEngine.pitchBend(semitones);
+    UiCommand cmd;
+    cmd.type = UiCommandType::PitchBend;
+    cmd.semitones = semitones;
+    enqueueUiCommand(cmd);
 }
 
 void Pf02AudioProcessor::allNotesOff() noexcept
 {
-    mAudioEngine.allNotesOff();
+    UiCommand cmd;
+    cmd.type = UiCommandType::AllNotesOff;
+    enqueueUiCommand(cmd);
 }
 
 void Pf02AudioProcessor::triggerKineticBurst(const juce::String& burstType, float velocity) noexcept
 {
-    if (burstType.equalsIgnoreCase("impulse")) {
-        mAudioEngine.triggerKineticBurst("impulse", velocity);
-    } else if (burstType.equalsIgnoreCase("breakaway")) {
-        mAudioEngine.triggerKineticBurst("breakaway", velocity);
+    UiCommand cmd;
+    cmd.type = UiCommandType::KineticBurst;
+    cmd.velocity = velocity;
+    if (burstType.equalsIgnoreCase("breakaway")) {
+        cmd.burstKind = 1;
     } else if (burstType.equalsIgnoreCase("splatter")) {
-        mAudioEngine.triggerKineticBurst("splatter", velocity);
+        cmd.burstKind = 2;
     } else if (burstType.equalsIgnoreCase("cavity")) {
-        mAudioEngine.triggerKineticBurst("cavity", velocity);
+        cmd.burstKind = 3;
     } else {
-        mAudioEngine.triggerKineticBurst("impulse", velocity);
+        cmd.burstKind = 0;
     }
+    enqueueUiCommand(cmd);
 }
 
 void Pf02AudioProcessor::setMacro(const juce::String& macroId, float value) noexcept

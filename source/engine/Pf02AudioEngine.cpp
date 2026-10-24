@@ -328,9 +328,9 @@ void Pf02AudioEngine::dispatchTelemetryFrame() noexcept {
     const size_t writeIdx = mTelemetryWriteIndex.load(std::memory_order_relaxed);
     const size_t readIdx = mTelemetryReadIndex.load(std::memory_order_acquire);
 
-    // If queue is full, overwrite oldest slot
+    // If queue is full, drop newest frame so mTelemetryReadIndex remains strictly consumer-owned
     if ((writeIdx - readIdx) >= kTelemetryQueueSize) {
-        mTelemetryReadIndex.store(readIdx + 1, std::memory_order_release);
+        return;
     }
 
     mTelemetryQueue[writeIdx & (kTelemetryQueueSize - 1)] = frame;

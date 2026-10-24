@@ -89,11 +89,37 @@ public:
     }
 
 private:
+    enum class UiCommandType : uint8_t {
+        NoteOn = 0,
+        NoteOff,
+        PitchBend,
+        AllNotesOff,
+        KineticBurst
+    };
+
+    struct UiCommand {
+        UiCommandType type { UiCommandType::NoteOn };
+        int           midiNote { 60 };
+        float         velocity { 0.8f };
+        float         freqHz { 0.0f };
+        float         semitones { 0.0f };
+        uint8_t       burstKind { 0 }; // 0: impulse, 1: breakaway, 2: splatter, 3: cavity
+    };
+
+    static constexpr size_t kCommandQueueSize = 256;
+
+    void enqueueUiCommand(const UiCommand& cmd) noexcept;
+    void drainUiCommands() noexcept;
     void syncDirtyParametersToEngine() noexcept;
     void initializeParameterPointers() noexcept;
 
     juce::AudioProcessorValueTreeState mApvts;
     pf02::engine::Pf02AudioEngine mAudioEngine;
+
+    // Lock-free SPSC UI -> Audio performance command queue
+    std::array<UiCommand, kCommandQueueSize> mCommandQueue {};
+    std::atomic<size_t> mCommandWriteIndex { 0 };
+    std::atomic<size_t> mCommandReadIndex { 0 };
 
     // Raw atomic parameter value pointers for lock-free audio thread reads
     std::array<std::atomic<float>*, pf02::parameters::kNumParameters> mParamPointers {};
